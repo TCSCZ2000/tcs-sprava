@@ -47,7 +47,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="top">
-        <a className="brand" href="#/plan"><span className="mark">TCS</span> Správa</a>
+        <a className="brand" href="#/plan"><img src="/emblem.png" alt="" className="emblem" /> TCS Správa</a>
         <nav>
           {allowed.map(p => (
             <a key={p.id} href={`#/${p.id}`} className={current?.id === p.id ? 'on' : ''}
@@ -66,7 +66,7 @@ export default function App() {
 }
 
 function Center({ children }: { children: React.ReactNode }) {
-  return <div className="center"><div className="panel"><span className="mark big">TCS</span>{children}</div></div>
+  return <div className="center"><div className="panel"><img src="/emblem.png" alt="The Cargo Security Company" className="emblem big" /><img src="/wordmark.png" alt="" className="wordmark" />{children}</div></div>
 }
 
 function Login() {

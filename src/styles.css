@@ -4,7 +4,7 @@
   --paper: #eef1f0;
   --surface: #ffffff;
   --line: #d3dad8;
-  --signal: #2a6f97;
+  --signal: #2a3c9b;
   --signal-ink: #ffffff;
   --clash: #c62828;
   --changed: #e4d5f0;
@@ -191,3 +191,8 @@ tr.trip.newday > td { border-top: 2px solid var(--ink); }
 .plan.size-xs .daylabel { font-size: .95rem; }
 .plan.size-xs .changenote { font-size: .75rem; padding: 0 .3rem; }
 .plan.size-xs table.grid, .plan.size-s table.grid { min-width: 1400px; }
+
+/* Logo */
+.emblem { width: 34px; height: 34px; display: block; }
+.emblem.big { width: 96px; height: 96px; margin: 0 auto .75rem; }
+.wordmark { display: block; width: 100%; max-width: 340px; height: auto; margin: 0 auto 1.5rem; }
