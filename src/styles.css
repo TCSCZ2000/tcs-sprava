@@ -227,3 +227,23 @@ tr.trip.newday > td { border-top: 2px solid var(--ink); }
 .permgroups { display: block; columns: 3 400px; column-gap: .75rem; }
 .permgroup { break-inside: avoid; display: block; width: 100%; margin: 0 0 .75rem; }
 .permline { grid-template-columns: 10.5rem max-content; }
+
+/* Zákazník */
+.w-cust { width: 6.5rem; }
+td.custcell select { width: 6.3rem; font-weight: 600; }
+td.custcell.missing select { color: var(--clash); font-weight: 400; }
+.chip.cust { --c: #8a97a0; }
+.custfilter { flex: 0 1 auto; }
+
+/* Reporty */
+.reports table.grid { min-width: 2300px; }
+.reports td.ro { padding: 0 .4rem; white-space: nowrap; }
+.reports td.num { text-align: right; font-weight: 600; }
+.nowrap { white-space: nowrap; }
+.missingtxt { color: var(--clash); }
+.timecell .cell { min-width: 6.2rem; width: 6.6rem; }
+.repno { white-space: nowrap; }
+button.small { font-size: .8rem; padding: .15rem .5rem; }
+button.link.small { padding: 0; margin-left: .3rem; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+tr.trip.done { opacity: .7; }

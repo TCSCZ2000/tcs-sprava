@@ -6,10 +6,14 @@ import { computeStart, dateLabel, docState, hm, inkOn, todayIso } from '../lib/f
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
 const GROUP = 'Skupina ✅'
+const REPORT = 'Report'
+const NO_CUSTOMER = '—'
 const EARLY = ['HEADS-UP', 'Confirmed', 'Send']
 
 export default function Plan() {
-  const { level, people, cars, places, statuses, docs, toast, reloadLists } = useApp()
+  const { level, people, cars, places, statuses: allStatuses, customers, docs, toast, reloadLists } = useApp()
+  // Report = cesta odjela a čeká na dopsání reportu v záložce Reporty, v Planningu není
+  const statuses = useMemo(() => allStatuses.filter(s => s.name !== REPORT), [allStatuses])
   const canNotes = level('planning') === 'write'
   const canCreate = level('planning_create') === 'write'
   const canStatus = level('planning_status') === 'write'
@@ -20,11 +24,12 @@ export default function Plan() {
   const [from, setFrom] = useState(todayIso(-1))
   const [to, setTo] = useState('')
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [carFilter, setCarFilter] = useState<string | null>(null)
   const [fleetOpen, setFleetOpen] = useState(true)
-  const [view, setView] = usePref<'days' | 'list'>('plan.view', 'days')
+  const [view, setView] = usePref<'days' | 'list' | 'customers'>('plan.view', 'days')
   const [size, setSize] = usePref<'m' | 's' | 'xs'>('plan.size', 'm')
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
@@ -125,8 +130,10 @@ export default function Plan() {
   const visible = useMemo(() => {
     const s = q.trim().toLowerCase()
     return trips
+      .filter(t => t.status !== REPORT)
       .filter(t => t.trip_date >= from && (!to || t.trip_date <= to))
       .filter(t => !hidden.has(t.status ?? ''))
+      .filter(t => !hiddenCust.has(t.customer ?? NO_CUSTOMER))
       .filter(t => !carFilter || t.car_id === carFilter)
       .filter(t => {
         if (!s) return true
@@ -138,20 +145,26 @@ export default function Plan() {
         return hay.includes(s)
       })
       .sort((a, b) => (a.trip_date + (a.trip_time ?? '')).localeCompare(b.trip_date + (b.trip_time ?? '')))
-  }, [trips, hidden, q, placeBy, personBy, carBy, from, to, carFilter])
+  }, [trips, hidden, hiddenCust, q, placeBy, personBy, carBy, from, to, carFilter])
 
   const days = useMemo(() => {
     if (view === 'list') return [['all', visible] as [string, Trip[]]]
+    if (view === 'customers') {
+      const order = [...customers.map(c => c.name), NO_CUSTOMER]
+      const m = new Map<string, Trip[]>(order.map(c => [c, []]))
+      for (const t of visible) m.get(t.customer ?? NO_CUSTOMER)?.push(t)
+      return [...m.entries()].filter(([, r]) => r.length)
+    }
     const m = new Map<string, Trip[]>()
     for (const t of visible) { if (!m.has(t.trip_date)) m.set(t.trip_date, []); m.get(t.trip_date)!.push(t) }
     return [...m.entries()]
-  }, [visible, view])
+  }, [visible, view, customers])
 
   // Jako v Excelu: kolikrát je auto v celém plánu (bez Finished a Canceled)
   const carUse = useMemo(() => {
     const m = new Map<string, Trip[]>()
     for (const t of trips) {
-      if (!t.car_id || t.status === 'Finished' || t.status === 'Canceled') continue
+      if (!t.car_id || t.status === 'Finished' || t.status === 'Canceled' || t.status === REPORT) continue
       if (!m.has(t.car_id)) m.set(t.car_id, [])
       m.get(t.car_id)!.push(t)
     }
@@ -179,9 +192,17 @@ export default function Plan() {
             </button>
           ))}
         </div>
+        <div className="statusfilter custfilter">
+          {[...customers.map(c => c.name), NO_CUSTOMER].map(c => (
+            <button key={c} className={'chip cust' + (hiddenCust.has(c) ? ' off' : '')}
+              onClick={() => setHiddenCust(cur => { const n = new Set(cur); n.has(c) ? n.delete(c) : n.add(c); return n })}
+              title={hiddenCust.has(c) ? 'Zobrazit' : 'Skrýt'}>{c === NO_CUSTOMER ? 'bez zákazníka' : c}</button>
+          ))}
+        </div>
         <div className="seg" role="group" aria-label="Zobrazení">
           <button className={view === 'days' ? 'on' : ''} aria-pressed={view === 'days'} onClick={() => setView('days')}>Po dnech</button>
           <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}>Seznam</button>
+          <button className={view === 'customers' ? 'on' : ''} aria-pressed={view === 'customers'} onClick={() => setView('customers')}>Po zákaznících</button>
         </div>
         <div className="seg" role="group" aria-label="Velikost písma">
           <button className={'fs-m' + (size === 'm' ? ' on' : '')} aria-pressed={size === 'm'} onClick={() => setSize('m')} title="Normální písmo">A</button>
@@ -191,7 +212,7 @@ export default function Plan() {
         {canCreate && <button className="primary" onClick={addTrip}>Nová cesta</button>}
       </div>
 
-      <datalist id="dl-status">{statuses.map(x => <option key={x.name} value={x.name} />)}</datalist>
+      <datalist id="dl-status">{allStatuses.map(x => <option key={x.name} value={x.name} />)}</datalist>
       <datalist id="dl-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name} />)}</datalist>
       <datalist id="dl-places">{places.map(p => <option key={p.id} value={p.name} />)}</datalist>
       <datalist id="dl-cars">{cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě').map(c => <option key={c.id} value={c.label} />)}</datalist>
@@ -219,7 +240,7 @@ export default function Plan() {
         <table className="grid">
           <thead>
             <tr>
-              <th className="w-status">Status</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th>
+              <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th>
               <th>Guard 1</th><th>Guard 2</th><th>Guard 3</th><th>Auto</th><th>Odkud</th>
               <th className="w-ref">Ref. TCS</th><th className="w-time">Start</th><th>Poznámka</th><th>Změna</th>
               {canCreate && <th className="w-x" aria-label="Akce" />}
@@ -227,8 +248,14 @@ export default function Plan() {
           </thead>
           {days.map(([date, rows]) => (
             <tbody key={date}>
+              {view === 'customers' && <tr className="dayrow">
+                <td colSpan={canCreate ? 16 : 15}>
+                  <span className="daylabel">{date === NO_CUSTOMER ? 'Bez zákazníka' : date}</span>
+                  <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
+                </td>
+              </tr>}
               {view === 'days' && <tr className="dayrow">
-                <td colSpan={canCreate ? 15 : 14}>
+                <td colSpan={canCreate ? 16 : 15}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
@@ -239,7 +266,7 @@ export default function Plan() {
                 const car = carBy.get(t.car_id ?? '')
                 const start = computeStart(t.trip_date, t.trip_time, pup?.travel_time ?? null, pup?.ferry ?? false)
                 return (
-                  <tr key={t.id} className={'trip' + (view === 'list' && i > 0 && rows[i - 1].trip_date !== t.trip_date ? ' newday' : '')}
+                  <tr key={t.id} className={'trip' + (view !== 'days' && i > 0 && rows[i - 1].trip_date !== t.trip_date ? ' newday' : '')}
                     style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
                     <td className="statuscell">
                       <StatusInput disabled={!canStatus} color={st?.color}
@@ -252,10 +279,18 @@ export default function Plan() {
                             ref_tcs: n.toUpperCase(),
                             status: !t.status || EARLY.includes(t.status) ? GROUP : t.status,
                           })
-                          const hit = statuses.find(x => x.name.toLowerCase() === n.toLowerCase())
+                          const hit = allStatuses.find(x => x.name.toLowerCase() === n.toLowerCase())
                           if (!hit) return toast(`Napište status ze seznamu nebo referenční číslo ve tvaru A12345.`, 'err')
                           save(t, { status: hit.name })
+                          if (hit.name === REPORT) toast('Cesta přešla do záložky Reporty k dopsání reportu.')
                         }} />
+                    </td>
+                    <td className={'custcell' + (t.customer ? '' : ' missing')}>
+                      <select disabled={!canRoute} value={t.customer ?? ''} onChange={e => save(t, { customer: e.target.value || null })}
+                        aria-label="Zákazník">
+                        <option value="">—</option>
+                        {customers.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                      </select>
                     </td>
                     <td className="datecell"><Text disabled={!canRoute} value={shortDay(t.trip_date)} time
                       onSave={v => { const d = parseDay(v, t.trip_date); if (!d) return toast('Datum zapište jako 3.11. nebo 3.11.2026.', 'err'); save(t, { trip_date: d }) }} /></td>
@@ -327,7 +362,7 @@ export default function Plan() {
           ))}
         </table>
         {loaded && days.length === 0 && (
-          <p className="empty">V tomhle období nejsou žádné cesty{hidden.size ? ' s vybranými statusy' : ''}.{canCreate && ' Přidejte první tlačítkem Nová cesta.'}</p>
+          <p className="empty">V tomhle období nejsou žádné cesty{hidden.size || hiddenCust.size ? ' s vybraným filtrem' : ''}.{canCreate && ' Přidejte první tlačítkem Nová cesta.'}</p>
         )}
       </div>
 

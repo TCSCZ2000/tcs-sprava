@@ -21,6 +21,7 @@ const GROUPS: { tab: string; rows: Row[] }[] = [
     { key: 'planning_route', label: 'Datum, čas a trasa', kind: 'bin' },
   ] },
   { tab: 'Podklad pro zákazníka', rows: [{ key: 'podklad', label: 'Přístup', kind: 'view', viewer: true }] },
+  { tab: 'Reporty', rows: [{ key: 'reports', label: 'Přístup', kind: 'tri', viewer: true, names: { none: 'nevidí', read: 'čte', write: 'dopisuje reporty' } }] },
   { tab: 'Lidé', rows: [
     { key: 'people', label: 'Kontakty', kind: 'tri', viewer: true },
     { key: 'people_docs', label: 'Doklady a pasy', kind: 'tri', viewer: true },
@@ -35,11 +36,11 @@ const VIEWER_KEYS = GROUPS.flatMap(g => g.rows.filter(r => r.viewer).map(r => r.
 // Šablony pro rychlé nastavení Individuální role
 const PRESETS: { name: string; perms: Draft }[] = [
   { name: 'Dispečer', perms: { planning: 'write', planning_create: 'write', planning_status: 'write', planning_crew: 'write', planning_route: 'write',
-    podklad: 'read', people: 'write', people_docs: 'read', cars: 'read', places: 'write', users: 'none' } },
+    podklad: 'read', reports: 'read', people: 'write', people_docs: 'read', cars: 'read', places: 'write', users: 'none' } },
   { name: 'Vše zakázat', perms: Object.fromEntries(ALL_KEYS.map(k => [k, 'none'])) as Draft },
 ]
 
-const VIEWER_DEFAULT: Draft = { planning: 'read', podklad: 'read', people: 'read', people_docs: 'none', cars: 'read', places: 'read' }
+const VIEWER_DEFAULT: Draft = { planning: 'read', podklad: 'read', reports: 'none', people: 'read', people_docs: 'none', cars: 'read', places: 'read' }
 
 function cap(role: Role, d: Draft): Draft {
   if (role === 'admin') return {}
@@ -126,6 +127,7 @@ export default function Users() {
       tabs.push(`Planning ${can.length === 4 ? '(upravuje vše)' : can.length ? '(mění ' + can.join(', ') + ')' : '(čte)'}`)
     }
     if (get('podklad') !== 'none') tabs.push('Podklad')
+    if (get('reports') !== 'none') tabs.push('Reporty' + (get('reports') === 'read' ? ' (čte)' : ''))
     for (const [k, l] of [['people', 'Lidé'], ['people_docs', 'Doklady'], ['cars', 'Auta'], ['places', 'Místa'], ['users', 'Uživatelé']])
       if (get(k) !== 'none') tabs.push(l + (get(k) === 'read' ? ' (čte)' : ''))
     return tabs.length ? tabs.join(' · ') : 'nic nevidí'

@@ -33,4 +33,8 @@ export interface Trip {
   guard1_id: string | null; guard2_id: string | null; guard3_id: string | null; car_id: string | null
   car_origin: string | null; car_origin_other: string | null; ref_tcs: string | null; status: string | null
   remarks: string | null; crew_change: string | null; updated_at: string; updated_by: string | null
+  customer: string | null; report_no: number | null
+  dep_home: string | null; arr_pup: string | null; dep_pup: string | null; arr_dop: string | null; dep_dop: string | null; arr_home: string | null
+  km_pup: number | null; km_dop: number | null; km_total: number | null; toll: number | null; hours_manual: number | null; report_note: string | null
 }
+export interface Customer { name: string; sort: number; active: boolean }
