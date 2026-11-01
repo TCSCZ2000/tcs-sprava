@@ -6,6 +6,7 @@ import { computeStart, dateLabel, docState, hm, inkOn, todayIso } from '../lib/f
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
 const GROUP = 'Skupina ✅'
+const EARLY = ['HEADS-UP', 'Confirmed', 'Send']
 
 export default function Plan() {
   const { level, people, cars, places, statuses, docs, toast, reloadLists } = useApp()
@@ -225,11 +226,15 @@ export default function Plan() {
                   <tr key={t.id} className="trip" style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
                     <td className="statuscell">
                       <StatusInput disabled={!canEdit} color={st?.color}
-                        value={t.status === GROUP && t.ref_tcs ? t.ref_tcs : (t.status ?? '')}
+                        value={t.ref_tcs ?? t.status ?? ''} title={t.ref_tcs ? `${t.ref_tcs} · ${t.status ?? 'bez statusu'}` : undefined}
                         onSave={v => {
                           const n = v.trim()
-                          if (!n) return save(t, { status: null })
-                          if (/^a\d{5}$/i.test(n)) return save(t, { status: GROUP, ref_tcs: n.toUpperCase() })
+                          if (!n) return
+                          // Nové referenční číslo posune cestu na Skupinu jen z ranějších stavů; jinak status drží
+                          if (/^a\d{5}$/i.test(n)) return save(t, {
+                            ref_tcs: n.toUpperCase(),
+                            status: !t.status || EARLY.includes(t.status) ? GROUP : t.status,
+                          })
                           const hit = statuses.find(x => x.name.toLowerCase() === n.toLowerCase())
                           if (!hit) return toast(`Napište status ze seznamu nebo referenční číslo ve tvaru A12345.`, 'err')
                           save(t, { status: hit.name })
@@ -333,15 +338,18 @@ function Text(props: {
 }
 
 // Status: vyber ze seznamu, nebo napiš referenční číslo A12345 → Skupina
-function StatusInput(props: { value: string; color?: string; disabled?: boolean; onSave: (v: string) => void }) {
+// Po kliknutí se políčko vyprázdní, aby nabídka ukázala všechny statusy; bez zápisu se vrátí původní hodnota
+function StatusInput(props: { value: string; color?: string; disabled?: boolean; title?: string; onSave: (v: string) => void }) {
   const [v, setV] = useState(props.value)
+  const [editing, setEditing] = useState(false)
   useEffect(() => setV(props.value), [props.value])
   return (
-    <input className="statusinput" list="dl-status" value={v} disabled={props.disabled} placeholder="status / A12345"
+    <input className="statusinput" list="dl-status" value={v} disabled={props.disabled} title={props.title}
+      placeholder={editing ? props.value || 'status / A12345' : 'status / A12345'}
       style={{ background: props.color, color: props.color ? inkOn(props.color) : undefined }}
-      onFocus={e => e.target.select()}
+      onFocus={() => { setEditing(true); setV('') }}
       onChange={e => setV(e.target.value)}
-      onBlur={() => { if (v !== props.value) props.onSave(v) }}
+      onBlur={() => { setEditing(false); if (v.trim() && v !== props.value) props.onSave(v); else setV(props.value) }}
       onKeyDown={e => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         if (e.key === 'Escape') { setV(props.value); (e.target as HTMLInputElement).blur() }

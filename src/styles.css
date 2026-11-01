@@ -92,7 +92,7 @@ tr.trip { background: color-mix(in srgb, var(--c) 16%, #fff); }
 tr.trip > td:first-child { box-shadow: inset 5px 0 0 var(--c); padding-left: 8px; }
 .statusinput { width: 8.4rem; font-weight: 600; border: 0; border-radius: 4px; padding: .3rem .4rem; }
 .statusinput:disabled { opacity: 1; }
-.statusinput::placeholder { color: #8a979e; font-weight: 400; }
+.statusinput::placeholder { color: inherit; opacity: .55; font-weight: 400; }
 .w-time { width: 5rem; }
 .w-ref { width: 7rem; }
 .w-x { width: 2rem; text-align: center; }
