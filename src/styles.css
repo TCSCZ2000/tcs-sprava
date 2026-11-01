@@ -160,3 +160,34 @@ tr.pending td { color: var(--ink-2); }
   .search { flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Zobrazení a velikost písma v Planningu */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; border-radius: 0; padding: .4rem .7rem; background: none; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.seg .fs-m { font-size: 1rem; } .seg .fs-s { font-size: .85rem; } .seg .fs-xs { font-size: .72rem; }
+.w-date { width: 4.6rem; }
+.datecell .cell { min-width: 3.8rem; width: 4.4rem; }
+.view-days .datecell .cell { color: var(--ink-2); }
+tr.trip.newday > td { border-top: 2px solid var(--ink); }
+
+.plan.size-s .grid { font-size: 13px; }
+.plan.size-s .grid td { height: 27px; }
+.plan.size-s .cell { padding: .15rem .3rem; }
+.plan.size-s .statusinput { padding: .15rem .35rem; width: 7.4rem; }
+.plan.size-s .dayrow td { padding: .55rem .5rem .2rem; }
+.plan.size-s .daylabel { font-size: 1.05rem; }
+
+.plan.size-xs .grid { font-size: 11.5px; }
+.plan.size-xs .grid td { height: 22px; padding: 0 .1rem; }
+.plan.size-xs .cell { padding: .05rem .25rem; min-width: 5rem; }
+.plan.size-xs .cell.wide { min-width: 9.5rem; }
+.plan.size-xs .cell.person { min-width: 7rem; }
+.plan.size-xs .cell.carcell { min-width: 13rem; }
+.plan.size-xs .statusinput { padding: .05rem .3rem; width: 6.6rem; }
+.plan.size-xs .grid th { padding: .3rem .3rem; font-size: .72rem; }
+.plan.size-xs .dayrow td { padding: .4rem .5rem .15rem; }
+.plan.size-xs .daylabel { font-size: .95rem; }
+.plan.size-xs .changenote { font-size: .75rem; padding: 0 .3rem; }
+.plan.size-xs table.grid, .plan.size-s table.grid { min-width: 1400px; }

@@ -20,6 +20,8 @@ export default function Plan() {
   const [loaded, setLoaded] = useState(false)
   const [carFilter, setCarFilter] = useState<string | null>(null)
   const [fleetOpen, setFleetOpen] = useState(true)
+  const [view, setView] = usePref<'days' | 'list'>('plan.view', 'days')
+  const [size, setSize] = usePref<'m' | 's' | 'xs'>('plan.size', 'm')
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const personByName = useMemo(() => new Map(people.map(p => [p.short_name.toLowerCase(), p])), [people])
@@ -135,10 +137,11 @@ export default function Plan() {
   }, [trips, hidden, q, placeBy, personBy, carBy, from, to, carFilter])
 
   const days = useMemo(() => {
+    if (view === 'list') return [['all', visible] as [string, Trip[]]]
     const m = new Map<string, Trip[]>()
     for (const t of visible) { if (!m.has(t.trip_date)) m.set(t.trip_date, []); m.get(t.trip_date)!.push(t) }
     return [...m.entries()]
-  }, [visible])
+  }, [visible, view])
 
   // Jako v Excelu: kolikrát je auto v celém plánu (bez Finished a Canceled)
   const carUse = useMemo(() => {
@@ -159,7 +162,7 @@ export default function Plan() {
   }
 
   return (
-    <section className="plan">
+    <section className={'plan size-' + size + ' view-' + view}>
       <div className="toolbar">
         <label className="field">Od<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
         <label className="field">Do<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
@@ -171,6 +174,15 @@ export default function Plan() {
               {s.name}
             </button>
           ))}
+        </div>
+        <div className="seg" role="group" aria-label="Zobrazení">
+          <button className={view === 'days' ? 'on' : ''} aria-pressed={view === 'days'} onClick={() => setView('days')}>Po dnech</button>
+          <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}>Seznam</button>
+        </div>
+        <div className="seg" role="group" aria-label="Velikost písma">
+          <button className={'fs-m' + (size === 'm' ? ' on' : '')} aria-pressed={size === 'm'} onClick={() => setSize('m')} title="Normální písmo">A</button>
+          <button className={'fs-s' + (size === 's' ? ' on' : '')} aria-pressed={size === 's'} onClick={() => setSize('s')} title="Menší písmo">A</button>
+          <button className={'fs-xs' + (size === 'xs' ? ' on' : '')} aria-pressed={size === 'xs'} onClick={() => setSize('xs')} title="Nejmenší písmo">A</button>
         </div>
         {canEdit && <button className="primary" onClick={addTrip}>Nová cesta</button>}
       </div>
@@ -203,7 +215,7 @@ export default function Plan() {
         <table className="grid">
           <thead>
             <tr>
-              <th className="w-status">Status</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th>
+              <th className="w-status">Status</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th>
               <th>Guard 1</th><th>Guard 2</th><th>Guard 3</th><th>Auto</th><th>Odkud</th>
               <th className="w-ref">Ref. TCS</th><th className="w-time">Start</th><th>Poznámka</th><th>Změna</th>
               {canEdit && <th className="w-x" aria-label="Akce" />}
@@ -211,19 +223,20 @@ export default function Plan() {
           </thead>
           {days.map(([date, rows]) => (
             <tbody key={date}>
-              <tr className="dayrow">
-                <td colSpan={canEdit ? 14 : 13}>
+              {view === 'days' && <tr className="dayrow">
+                <td colSpan={canEdit ? 15 : 14}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
-              </tr>
-              {rows.map(t => {
+              </tr>}
+              {rows.map((t, i) => {
                 const st = statusBy.get(t.status ?? '')
                 const pup = placeBy.get(t.pup_id ?? '')
                 const car = carBy.get(t.car_id ?? '')
                 const start = computeStart(t.trip_date, t.trip_time, pup?.travel_time ?? null, pup?.ferry ?? false)
                 return (
-                  <tr key={t.id} className="trip" style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
+                  <tr key={t.id} className={'trip' + (view === 'list' && i > 0 && rows[i - 1].trip_date !== t.trip_date ? ' newday' : '')}
+                    style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
                     <td className="statuscell">
                       <StatusInput disabled={!canEdit} color={st?.color}
                         value={t.ref_tcs ?? t.status ?? ''} title={t.ref_tcs ? `${t.ref_tcs} · ${t.status ?? 'bez statusu'}` : undefined}
@@ -240,6 +253,8 @@ export default function Plan() {
                           save(t, { status: hit.name })
                         }} />
                     </td>
+                    <td className="datecell"><Text disabled={!canEdit} value={shortDay(t.trip_date)} time
+                      onSave={v => { const d = parseDay(v, t.trip_date); if (!d) return toast('Datum zapište jako 3.11. nebo 3.11.2026.', 'err'); save(t, { trip_date: d }) }} /></td>
                     <td><Text disabled={!canEdit} value={hm(t.trip_time)} placeholder="hh:mm" time
                       onSave={v => { const n = normTime(v); if (n === undefined) return toast('Čas zapište jako 8:30 nebo 0830.', 'err'); save(t, { trip_time: n }) }} /></td>
                     <td><Text disabled={!canEdit} list="dl-places" value={pup?.name ?? ''} wide
@@ -355,6 +370,31 @@ function StatusInput(props: { value: string; color?: string; disabled?: boolean;
         if (e.key === 'Escape') { setV(props.value); (e.target as HTMLInputElement).blur() }
       }} />
   )
+}
+
+// Zapamatovaná volba na tomhle počítači (když prohlížeč nedovolí, platí jen do zavření)
+function usePref<T extends string>(key: string, initial: T): [T, (v: T) => void] {
+  const [v, setV] = useState<T>(() => {
+    try { return (localStorage.getItem(key) as T) || initial } catch { return initial }
+  })
+  const set = (x: T) => { setV(x); try { localStorage.setItem(key, x) } catch { /* bez paměti */ } }
+  return [v, set]
+}
+
+// "2026-11-03" → "3. 11."
+function shortDay(iso: string) {
+  const [, m, d] = iso.split('-').map(Number)
+  return `${d}. ${m}.`
+}
+
+// "3.11.", "3. 11.", "3.11.2026" → "2026-11-03"; rok se vezme z původního data
+function parseDay(v: string, prev: string): string | null {
+  const m = v.trim().match(/^(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?\s*(\d{4})?$/)
+  if (!m) return null
+  const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3] ?? prev.slice(0, 4))
+  const dt = new Date(y, mo - 1, d)
+  if (dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
 // "830", "8:30", "8.30" → "08:30"; prázdné → null; nesmysl → undefined
