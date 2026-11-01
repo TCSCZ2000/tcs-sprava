@@ -9,7 +9,7 @@ export const supabase = createClient(url || 'http://localhost', key || 'missing'
 })
 
 export type Level = 'none' | 'read' | 'write'
-export type Role = 'admin' | 'dispatcher' | 'viewer'
+export type Role = 'admin' | 'viewer' | 'custom' | 'dispatcher'
 
 export interface Profile { id: string; email: string; full_name: string; role: Role; active: boolean }
 export interface Person {

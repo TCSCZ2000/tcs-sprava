@@ -8,7 +8,7 @@ import Users from './pages/Users'
 
 const PAGES: { id: string; label: string; module: ModuleKey; el: () => JSX.Element }[] = [
   { id: 'plan', label: 'Planning', module: 'planning', el: () => <Plan /> },
-  { id: 'podklad', label: 'Podklad', module: 'planning', el: () => <Podklad /> },
+  { id: 'podklad', label: 'Podklad', module: 'podklad', el: () => <Podklad /> },
   { id: 'lide', label: 'Lidé', module: 'people', el: () => <People /> },
   { id: 'auta', label: 'Auta', module: 'cars', el: () => <Cars /> },
   { id: 'mista', label: 'Místa', module: 'places', el: () => <Places /> },

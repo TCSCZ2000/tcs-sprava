@@ -213,3 +213,17 @@ tr.trip.newday > td { border-top: 2px solid var(--ink); }
 .seg.small button { padding: .2rem .55rem; font-size: .85rem; }
 .seg.small button:disabled { cursor: not-allowed; }
 .seg button { white-space: nowrap; }
+
+.inviteform { flex-direction: column; align-items: stretch; }
+.invitefields { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+.rolehelp { margin: .25rem 0 0; color: var(--ink-2); }
+.presets { margin: 0; color: var(--ink-2); display: flex; gap: .75rem; align-items: center; }
+.inviteform .permgroups { margin-top: .25rem; }
+.inviteform .permgroup { background: var(--paper); }
+.permline { grid-template-columns: 11rem auto; }
+.permgroups { align-items: start; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+.permline .seg { justify-self: start; }
+/* práva: sloupce bez mezer, skupiny se nelámou */
+.permgroups { display: block; columns: 3 400px; column-gap: .75rem; }
+.permgroup { break-inside: avoid; display: block; width: 100%; margin: 0 0 .75rem; }
+.permline { grid-template-columns: 10.5rem max-content; }

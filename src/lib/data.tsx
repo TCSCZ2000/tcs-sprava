@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Car, type Level, type Person, type PersonDocs, type Place, type Profile, type Status } from './supabase'
 
-export const MODULES = ['planning', 'planning_create', 'planning_status', 'planning_crew', 'planning_route', 'people', 'people_docs', 'cars', 'places', 'users'] as const
+export const MODULES = ['planning', 'planning_create', 'planning_status', 'planning_crew', 'planning_route', 'podklad', 'people', 'people_docs', 'cars', 'places', 'users'] as const
 export type ModuleKey = (typeof MODULES)[number]
 
 interface Ctx {
@@ -80,6 +80,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         for (const r of (rd.data ?? []) as { role: string; module: string; level: Level }[])
           if (r.role === prof.role) lv[r.module] = r.level
         for (const r of (pm.data ?? []) as { module: string; level: Level }[]) lv[r.module] = r.level
+        // stejně jako perm() v databázi: Správce vše, Náhled nejvýš čte
+        for (const m of MODULES) {
+          if (prof.role === 'admin') lv[m] = 'write'
+          else if (prof.role === 'viewer' && lv[m] === 'write') lv[m] = 'read'
+        }
       }
       setLevels(lv)
       if (prof && prof.active) await reloadLists()
