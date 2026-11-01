@@ -76,6 +76,7 @@ table.grid.plain { min-width: 0; }
 .cell:disabled { color: inherit; }
 .cell.time { min-width: 4.2rem; width: 4.6rem; }
 .cell.person { min-width: 8.8rem; }
+.cell.carcell { min-width: 16.5rem; padding-right: 2.2rem; }
 .cell::placeholder { color: #aab5ba; }
 .grid select { border: 1px solid transparent; background: transparent; border-radius: 4px; padding: .25rem .2rem; }
 .grid select:hover:not(:disabled) { border-color: var(--line); }
@@ -108,11 +109,16 @@ td.change { min-width: 11rem; }
 .changenote { display: inline-flex; flex-direction: column; background: var(--changed); border-radius: 4px; padding: .2rem .4rem; font-size: .85rem; }
 .empty { color: var(--ink-2); padding: 1.5rem; margin: 0; }
 
-/* Auta dnes */
-.fleet { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-top: .9rem; }
-.fleetlabel { font-weight: 600; margin-right: .4rem; }
-.car { border: 1px solid var(--line); background: var(--surface); border-radius: 4px; padding: .1rem .4rem; font-family: 'Barlow Semi Condensed', sans-serif; font-size: .85rem; color: var(--ink-2); }
-.car.out { background: var(--ink); color: #fff; border-color: var(--ink); }
+/* Auta v plánu – stejná logika jako v Excelu */
+.fleet { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin: 0 0 .75rem; }
+.fleetlabel { font-weight: 600; margin-right: .5rem; color: var(--ink); text-decoration: none; }
+.car { border: 1px solid var(--line); background: var(--surface); border-radius: 4px; padding: .1rem .45rem; font-family: 'Barlow Semi Condensed', sans-serif; font-size: .9rem; color: var(--ink-2); }
+.car.used { background: #ffc7ce; border-color: #f0a3ad; color: #9c0006; font-weight: 600; }
+.car.repair { border-style: dashed; }
+.car.on { outline: 2px solid var(--ink); outline-offset: 1px; }
+.times { font-size: .75rem; margin-left: .25rem; font-weight: 600; }
+td.once .cell { color: #9c0006; font-weight: 600; }
+.cell-times { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: var(--surface); border: 1px solid var(--line); border-radius: 3px; padding: 0 .25rem; color: var(--ink-2); }
 
 /* Podklad */
 .tripselect { border: 1px solid var(--line); border-radius: 6px; padding: .4rem .5rem; background: var(--surface); min-width: min(100%, 460px); }

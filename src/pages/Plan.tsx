@@ -16,6 +16,8 @@ export default function Plan() {
   const [hidden, setHidden] = useState<Set<string>>(new Set(['Canceled', 'Finished']))
   const [q, setQ] = useState('')
   const [loaded, setLoaded] = useState(false)
+  const [carFilter, setCarFilter] = useState<string | null>(null)
+  const [fleetOpen, setFleetOpen] = useState(true)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const personByName = useMemo(() => new Map(people.map(p => [p.short_name.toLowerCase(), p])), [people])
@@ -30,14 +32,16 @@ export default function Plan() {
   const statusBy = useMemo(() => new Map(statuses.map(s => [s.name, s])), [statuses])
 
   useEffect(() => {
-    let query = supabase.from('trips').select('*').gte('trip_date', from).order('trip_date').order('trip_time', { nullsFirst: true })
-    if (to) query = query.lte('trip_date', to)
-    query.then(({ data, error }) => {
+    // Načte vybrané období a navíc všechny rozjeté cesty (jako řádky, které v Excelu ještě nejsou smazané)
+    supabase.from('trips').select('*')
+      .or(`trip_date.gte.${from},status.is.null,status.not.in.(Finished,Canceled)`)
+      .order('trip_date').order('trip_time', { nullsFirst: true })
+      .then(({ data, error }) => {
       if (error) toast(explain(error), 'err')
       setTrips((data as Trip[]) ?? [])
       setLoaded(true)
     })
-  }, [from, to, toast])
+  }, [from, toast])
 
   // Živé změny od ostatních
   useEffect(() => {
@@ -113,7 +117,9 @@ export default function Plan() {
   const visible = useMemo(() => {
     const s = q.trim().toLowerCase()
     return trips
+      .filter(t => t.trip_date >= from && (!to || t.trip_date <= to))
       .filter(t => !hidden.has(t.status ?? ''))
+      .filter(t => !carFilter || t.car_id === carFilter)
       .filter(t => {
         if (!s) return true
         const hay = [
@@ -124,7 +130,7 @@ export default function Plan() {
         return hay.includes(s)
       })
       .sort((a, b) => (a.trip_date + (a.trip_time ?? '')).localeCompare(b.trip_date + (b.trip_time ?? '')))
-  }, [trips, hidden, q, placeBy, personBy, carBy])
+  }, [trips, hidden, q, placeBy, personBy, carBy, from, to, carFilter])
 
   const days = useMemo(() => {
     const m = new Map<string, Trip[]>()
@@ -132,10 +138,19 @@ export default function Plan() {
     return [...m.entries()]
   }, [visible])
 
-  const onRoad = useMemo(() => {
-    const today = todayIso()
-    return new Set(trips.filter(t => t.trip_date === today && t.status !== 'Canceled' && t.car_id).map(t => t.car_id!))
+  // Jako v Excelu: kolikrát je auto v celém plánu (bez Finished a Canceled)
+  const carUse = useMemo(() => {
+    const m = new Map<string, Trip[]>()
+    for (const t of trips) {
+      if (!t.car_id || t.status === 'Finished' || t.status === 'Canceled') continue
+      if (!m.has(t.car_id)) m.set(t.car_id, [])
+      m.get(t.car_id)!.push(t)
+    }
+    return m
   }, [trips])
+  const useTitle = (id: string) => (carUse.get(id) ?? [])
+    .map(t => `${dateLabel(t.trip_date)} ${hm(t.trip_time)} ${placeBy.get(t.pup_id ?? '')?.name ?? ''} → ${placeBy.get(t.dop_id ?? '')?.name ?? ''}`).join('\n')
+  const fleet = cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě')
 
   function toggleStatus(name: string) {
     setHidden(cur => { const n = new Set(cur); n.has(name) ? n.delete(name) : n.add(name); return n })
@@ -161,6 +176,25 @@ export default function Plan() {
       <datalist id="dl-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name} />)}</datalist>
       <datalist id="dl-places">{places.map(p => <option key={p.id} value={p.name} />)}</datalist>
       <datalist id="dl-cars">{cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě').map(c => <option key={c.id} value={c.label} />)}</datalist>
+
+      {fleet.length > 0 && (
+        <div className="fleet" aria-label="Auta v plánu">
+          <button className="fleetlabel link" onClick={() => setFleetOpen(o => !o)}>
+            Auta v plánu: {fleet.filter(c => carUse.has(c.id)).length} jede, {fleet.filter(c => !carUse.has(c.id)).length} volných
+          </button>
+          {fleetOpen && fleet.map(c => {
+            const n = carUse.get(c.id)?.length ?? 0
+            return (
+              <button key={c.id} className={'car' + (n ? ' used' : '') + (carFilter === c.id ? ' on' : '') + (c.state === 'V opravě' ? ' repair' : '')}
+                title={`${c.label}${c.state === 'V opravě' ? ' · v opravě' : ''}${n ? '\n' + useTitle(c.id) : '\nvolné'}`}
+                onClick={() => setCarFilter(f => (f === c.id ? null : c.id))}>
+                {c.car_no ?? c.plate}{n > 1 && <span className="times">{n}×</span>}
+              </button>
+            )
+          })}
+          {carFilter && <button className="link" onClick={() => setCarFilter(null)}>Zobrazit všechna auta</button>}
+        </div>
+      )}
 
       <div className="tablewrap">
         <table className="grid">
@@ -219,9 +253,11 @@ export default function Plan() {
                         </td>
                       )
                     })}
-                    <td className={(clash(t, t.car_id) ? 'clash ' : '') + (t.crew_change?.includes('Auto:') ? 'changed' : '')}
-                      title={clash(t, t.car_id) ? 'Auto má ten den ještě jinou cestu' : undefined}>
-                      <Text disabled={!canEdit} list="dl-cars" value={car?.label ?? ''} wide
+                    <td className={(clash(t, t.car_id) ? 'clash ' : '') + (t.crew_change?.includes('Auto:') ? 'changed ' : '')
+                      + (t.car_id && carUse.get(t.car_id)?.length === 1 ? 'once' : '')}
+                      title={clash(t, t.car_id) ? 'Auto má ten den ještě jinou cestu'
+                        : t.car_id ? `V plánu ${carUse.get(t.car_id)?.length ?? 0}×:\n${useTitle(t.car_id)}` : undefined}>
+                      <Text disabled={!canEdit} list="dl-cars" value={car?.label ?? ''} carcell
                         onSave={v => {
                           const n = v.trim()
                           if (!n) return save(t, { car_id: null })
@@ -229,6 +265,7 @@ export default function Plan() {
                           if (!id) return toast(`Auto „${n}“ není v seznamu aut.`, 'err')
                           save(t, { car_id: id })
                         }} />
+                      {t.car_id && (carUse.get(t.car_id)?.length ?? 0) > 1 && <span className="times cell-times">{carUse.get(t.car_id)!.length}×</span>}
                     </td>
                     <td className="origin">
                       <select disabled={!canEdit} value={t.car_origin ?? ''}
@@ -263,27 +300,19 @@ export default function Plan() {
         )}
       </div>
 
-      {cars.length > 0 && (
-        <div className="fleet" aria-label="Auta dnes">
-          <span className="fleetlabel">Auta dnes</span>
-          {cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě').map(c => (
-            <span key={c.id} className={'car' + (onRoad.has(c.id) ? ' out' : '')} title={c.label}>{c.car_no ?? c.plate}</span>
-          ))}
-        </div>
-      )}
     </section>
   )
 }
 
 function Text(props: {
   value: string; onSave: (v: string) => void; disabled?: boolean; list?: string; type?: string
-  placeholder?: string; wide?: boolean; mono?: boolean; time?: boolean; person?: boolean
+  placeholder?: string; wide?: boolean; mono?: boolean; time?: boolean; person?: boolean; carcell?: boolean
 }) {
   const [v, setV] = useState(props.value)
   useEffect(() => setV(props.value), [props.value])
   return (
     <input
-      className={'cell' + (props.wide ? ' wide' : '') + (props.mono ? ' mono' : '') + (props.time ? ' time' : '') + (props.person ? ' person' : '')}
+      className={'cell' + (props.wide ? ' wide' : '') + (props.mono ? ' mono' : '') + (props.time ? ' time' : '') + (props.person ? ' person' : '') + (props.carcell ? ' carcell' : '')}
       value={v} type={props.type ?? 'text'} list={props.list} placeholder={props.placeholder}
       disabled={props.disabled}
       onChange={e => setV(e.target.value)}
