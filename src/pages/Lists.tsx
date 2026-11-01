@@ -86,7 +86,7 @@ export function Cars() {
   return (
     <ListTable title="Auta" rows={cars} cols={cols} canEdit={canEdit} onAdd={add} addLabel="Přidat auto"
       search={r => `${r.label} ${r.owner ?? ''} ${r.state ?? ''}`}
-      intro="Auta se stavem Vyřazeno se v Planningu nenabízejí do přehledu flotily. Servis a km přijdou v modulu Servis." />
+      intro="V Planningu se nabízejí jen auta se stavem Aktivní nebo V opravě. Servis a km přijdou v modulu Servis." />
   )
 }
 

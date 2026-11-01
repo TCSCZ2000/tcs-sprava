@@ -293,3 +293,7 @@ grant execute on function perm(text), can_read(text), can_write(text) to authent
 
 -- Živé změny pro všechny otevřené obrazovky
 alter publication supabase_realtime add table trips, people, cars, places;
+
+-- Funkce práv nejsou pro nepřihlášené
+revoke execute on function perm(text), can_read(text), can_write(text) from public, anon;
+revoke execute on function handle_new_user(), invite_attach(), trips_before_update() from public, anon, authenticated;

@@ -160,7 +160,7 @@ export default function Plan() {
 
       <datalist id="dl-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name} />)}</datalist>
       <datalist id="dl-places">{places.map(p => <option key={p.id} value={p.name} />)}</datalist>
-      <datalist id="dl-cars">{cars.map(c => <option key={c.id} value={c.label} />)}</datalist>
+      <datalist id="dl-cars">{cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě').map(c => <option key={c.id} value={c.label} />)}</datalist>
 
       <div className="tablewrap">
         <table className="grid">
@@ -266,7 +266,7 @@ export default function Plan() {
       {cars.length > 0 && (
         <div className="fleet" aria-label="Auta dnes">
           <span className="fleetlabel">Auta dnes</span>
-          {cars.filter(c => c.state !== 'Vyřazeno').map(c => (
+          {cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě').map(c => (
             <span key={c.id} className={'car' + (onRoad.has(c.id) ? ' out' : '')} title={c.label}>{c.car_no ?? c.plate}</span>
           ))}
         </div>
