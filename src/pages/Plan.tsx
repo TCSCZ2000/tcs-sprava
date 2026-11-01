@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
+import { carAlerts, inPlanning } from '../lib/cars'
 import { computeStart, dateLabel, docState, hm, inkOn, todayIso } from '../lib/format'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
@@ -11,7 +12,7 @@ const NO_CUSTOMER = '—'
 const EARLY = ['HEADS-UP', 'Confirmed', 'Send']
 
 export default function Plan() {
-  const { level, people, cars, places, statuses: allStatuses, customers, docs, toast, reloadLists } = useApp()
+  const { level, people, cars, places, statuses: allStatuses, customers, carCategories, docs, toast, reloadLists } = useApp()
   // Report = cesta odjela a čeká na dopsání reportu v záložce Reporty, v Planningu není
   const statuses = useMemo(() => allStatuses.filter(s => s.name !== REPORT), [allStatuses])
   const canNotes = level('planning') === 'write'
@@ -172,7 +173,7 @@ export default function Plan() {
   }, [trips])
   const useTitle = (id: string) => (carUse.get(id) ?? [])
     .map(t => `${dateLabel(t.trip_date)} ${hm(t.trip_time)} ${placeBy.get(t.pup_id ?? '')?.name ?? ''} → ${placeBy.get(t.dop_id ?? '')?.name ?? ''}`).join('\n')
-  const fleet = cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě')
+  const fleet = cars.filter(c => inPlanning(c, carCategories))
 
   function toggleStatus(name: string) {
     setHidden(cur => { const n = new Set(cur); n.has(name) ? n.delete(name) : n.add(name); return n })
@@ -215,7 +216,7 @@ export default function Plan() {
       <datalist id="dl-status">{allStatuses.map(x => <option key={x.name} value={x.name} />)}</datalist>
       <datalist id="dl-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name} />)}</datalist>
       <datalist id="dl-places">{places.map(p => <option key={p.id} value={p.name} />)}</datalist>
-      <datalist id="dl-cars">{cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě').map(c => <option key={c.id} value={c.label} />)}</datalist>
+      <datalist id="dl-cars">{fleet.map(c => <option key={c.id} value={c.label} />)}</datalist>
 
       {fleet.length > 0 && (
         <div className="fleet" aria-label="Auta v plánu">
@@ -224,9 +225,10 @@ export default function Plan() {
           </button>
           {fleetOpen && fleet.map(c => {
             const n = carUse.get(c.id)?.length ?? 0
+            const al = carAlerts(c)
             return (
-              <button key={c.id} className={'car' + (n ? ' used' : '') + (carFilter === c.id ? ' on' : '') + (c.state === 'V opravě' ? ' repair' : '')}
-                title={`${c.label}${c.state === 'V opravě' ? ' · v opravě' : ''}${n ? '\n' + useTitle(c.id) : '\nvolné'}`}
+              <button key={c.id} className={'car' + (n ? ' used' : '') + (carFilter === c.id ? ' on' : '') + (c.state === 'V opravě' ? ' repair' : '') + (al.some(a => a.level === 'due') ? ' warn-due' : al.length ? ' warn-soon' : '')}
+                title={`${c.label}${c.gps_platform ? ' · ' + c.gps_platform : ''}${c.state === 'V opravě' ? ' · v opravě' : ''}${al.length ? '\n⚠ ' + al.map(a => a.text).join(', ') : ''}${n ? '\n' + useTitle(c.id) : '\nvolné'}`}
                 onClick={() => setCarFilter(f => (f === c.id ? null : c.id))}>
                 {c.car_no ?? c.plate}{n > 1 && <span className="times">{n}×</span>}
               </button>

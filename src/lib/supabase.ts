@@ -25,7 +25,10 @@ export interface Car {
   loc: string | null; category: string | null; gps: string | null; uta_card: string | null; owner: string | null
   insurer: string | null; stk_until: string | null; vignette_until: string | null; tyres: string | null
   state: string | null; note: string | null; label: string
+  car_category: string | null; gps_platform: 'GpsGate' | 'RexGPS' | null
+  service_last_km: number | null; km_current: number | null; service_next_km: number | null; km_updated: string | null
 }
+export interface CarCategory { name: string; kind: 'own' | 'rental' | 'driver'; sort: number; visible: boolean }
 export interface Place { id: string; name: string; travel_time: string | null; ferry: boolean }
 export interface Status { name: string; color: string; sort: number; sent: boolean }
 export interface Trip {

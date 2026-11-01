@@ -59,37 +59,6 @@ export function People() {
   )
 }
 
-export function Cars() {
-  const { cars, level, toast, reloadLists } = useApp()
-  const canEdit = level('cars') === 'write'
-  async function saveCar(c: Car, patch: Partial<Car>) {
-    const { error } = await supabase.from('cars').update(patch).eq('id', c.id)
-    if (error) toast(explain(error), 'err'); else reloadLists()
-  }
-  async function add() {
-    const plate = window.prompt('SPZ nového auta')?.trim().toUpperCase()
-    if (!plate) return
-    const { error } = await supabase.from('cars').insert({ plate })
-    if (error) toast(explain(error), 'err'); else { toast(`Auto ${plate} přidáno`); reloadLists() }
-  }
-  const t = (k: keyof Car, label: string, extra: Partial<Col<Car>> = {}): Col<Car> => ({
-    key: k, label, get: r => (r[k] as string) ?? '', save: (r, v) => saveCar(r, { [k]: v || null } as Partial<Car>), ...extra,
-  })
-  const cols: Col<Car>[] = [
-    t('car_no', 'Č.'), t('plate', 'SPZ', { mono: true, save: (r, v) => v && saveCar(r, { plate: v.toUpperCase() }) }),
-    t('model', 'Model'), t('color', 'Barva'), t('loc', 'LOC'), t('category', 'KAT'), t('owner', 'Vlastník'),
-    t('gps', 'GPS'), t('uta_card', 'UTA'), t('insurer', 'Pojišťovna'),
-    t('stk_until', 'STK do', { type: 'date', mark: r => docState(r.stk_until) }),
-    t('vignette_until', 'Známka CZ do', { type: 'date', mark: r => docState(r.vignette_until) }),
-    t('tyres', 'Pneu'), t('state', 'Stav'), t('note', 'Poznámka', { wide: true }),
-  ]
-  return (
-    <ListTable title="Auta" rows={cars} cols={cols} canEdit={canEdit} onAdd={add} addLabel="Přidat auto"
-      search={r => `${r.label} ${r.owner ?? ''} ${r.state ?? ''}`}
-      intro="V Planningu se nabízejí jen auta se stavem Aktivní nebo V opravě. Servis a km přijdou v modulu Servis." />
-  )
-}
-
 export function Places() {
   const { places, level, toast, reloadLists } = useApp()
   const canEdit = level('places') === 'write'

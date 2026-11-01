@@ -247,3 +247,20 @@ button.small { font-size: .8rem; padding: .15rem .5rem; }
 button.link.small { padding: 0; margin-left: .3rem; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 tr.trip.done { opacity: .7; }
+
+/* Auta */
+.carfilters { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .75rem; }
+.filterrow { display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: center; }
+.flabel { font-weight: 600; width: 5.5rem; }
+.catpanel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; margin-bottom: .75rem; max-width: 640px; }
+.catgrid { margin-bottom: .5rem; }
+.cargrid td.alerts { min-width: 11rem; }
+.badge { display: inline-block; font-size: .78rem; border-radius: 4px; padding: .05rem .4rem; margin: .1rem .25rem .1rem 0; white-space: nowrap; font-weight: 600; }
+.badge.due { background: var(--expired); color: #8e2f1e; }
+.badge.soon { background: var(--soon); color: #8a4b08; }
+.cargrid td.num { text-align: right; }
+select.gps.GpsGate { color: #1f6f43; font-weight: 600; }
+select.gps.RexGPS { color: #2a3c9b; font-weight: 600; }
+.car.warn-soon, .car.warn-due { position: relative; }
+.car.warn-soon::after, .car.warn-due::after { content: ''; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: #d97706; border: 1px solid #fff; }
+.car.warn-due::after { background: var(--clash); }
