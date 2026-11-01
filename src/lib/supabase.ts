@@ -21,7 +21,7 @@ export interface PersonDocs {
   passport_number: string | null; passport_valid_to: string | null
 }
 export interface Car {
-  id: string; plate: string; model: string | null; color: string | null; car_no: string | null
+  id: string; plate: string | null; model: string | null; color: string | null; car_no: string | null
   loc: string | null; category: string | null; gps: string | null; uta_card: string | null; owner: string | null
   insurer: string | null; stk_until: string | null; vignette_until: string | null; tyres: string | null
   state: string | null; note: string | null; label: string

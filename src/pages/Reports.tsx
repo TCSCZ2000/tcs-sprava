@@ -136,7 +136,7 @@ export default function Reports() {
                       onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
                     <td className="ro">{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}</td>
                     <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}</td>
-                    <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? ''}</td>
+                    <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => (
                       <td key={x.key} className="timecell">
                         <Text disabled={!ed} value={fmtDT(t[x.key])} time placeholder="hh:mm"

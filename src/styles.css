@@ -264,3 +264,7 @@ select.gps.RexGPS { color: #2a3c9b; font-weight: 600; }
 .car.warn-soon, .car.warn-due { position: relative; }
 .car.warn-soon::after, .car.warn-due::after { content: ''; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: #d97706; border: 1px solid #fff; }
 .car.warn-due::after { background: var(--clash); }
+
+/* Auto z půjčovny bez SPZ */
+td.placeholder .cell { color: #8a4b08; font-style: italic; background: var(--soon); }
+.orderrental { border: 1px solid var(--line); border-radius: 6px; padding: .4rem .5rem; background: var(--surface); }

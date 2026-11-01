@@ -40,9 +40,12 @@ export default function Plan() {
   const carBy = useMemo(() => new Map(cars.map(c => [c.id, c])), [cars])
   const carByLabel = useMemo(() => {
     const m = new Map<string, string>()
-    for (const c of cars) { m.set(c.label.toLowerCase(), c.id); m.set(c.plate.toLowerCase(), c.id) }
+    // nejdřív všechna auta, pak ta v Planningu (mají přednost při stejném popisu, např. vrácené a nové Sixt1)
+    for (const c of [...cars, ...cars.filter(x => inPlanning(x, carCategories))]) {
+      m.set(c.label.toLowerCase(), c.id); if (c.plate) m.set(c.plate.toLowerCase(), c.id); if (c.car_no) m.set(c.car_no.toLowerCase(), c.id)
+    }
     return m
-  }, [cars])
+  }, [cars, carCategories])
   const statusBy = useMemo(() => new Map(statuses.map(s => [s.name, s])), [statuses])
 
   useEffect(() => {
@@ -83,6 +86,15 @@ export default function Plan() {
     } else {
       setTrips(cur => cur.map(x => (x.id === t.id ? (data as Trip) : x)))
     }
+  }
+
+  async function orderRental(t: Trip, company: string) {
+    const { data, error } = await supabase.from('cars').insert({ car_category: company }).select().single()
+    if (error) return toast(explain(error), 'err')
+    const { data: fresh } = await supabase.from('cars').select('*').eq('id', (data as { id: string }).id).single()
+    await reloadLists()
+    await save(t, { car_id: (data as { id: string }).id })
+    toast(`Objednané auto ${(fresh as { car_no: string | null } | null)?.car_no ?? company} přidáno. SPZ a model doplňte v Autech, až je budete znát.`)
   }
 
   async function addTrip() {
@@ -230,7 +242,7 @@ export default function Plan() {
               <button key={c.id} className={'car' + (n ? ' used' : '') + (carFilter === c.id ? ' on' : '') + (c.state === 'V opravě' ? ' repair' : '') + (al.some(a => a.level === 'due') ? ' warn-due' : al.length ? ' warn-soon' : '')}
                 title={`${c.label}${c.gps_platform ? ' · ' + c.gps_platform : ''}${c.state === 'V opravě' ? ' · v opravě' : ''}${al.length ? '\n⚠ ' + al.map(a => a.text).join(', ') : ''}${n ? '\n' + useTitle(c.id) : '\nvolné'}`}
                 onClick={() => setCarFilter(f => (f === c.id ? null : c.id))}>
-                {c.car_no ?? c.plate}{n > 1 && <span className="times">{n}×</span>}
+                {c.car_no ?? c.plate}{!c.plate && <span className="times">?</span>}{n > 1 && <span className="times">{n}×</span>}
               </button>
             )
           })}
@@ -322,16 +334,20 @@ export default function Plan() {
                       )
                     })}
                     <td className={(clash(t, t.car_id) ? 'clash ' : '') + (t.crew_change?.includes('Auto:') ? 'changed ' : '')
-                      + (t.car_id && carUse.get(t.car_id)?.length === 1 ? 'once' : '')}
+                      + (t.car_id && carUse.get(t.car_id)?.length === 1 ? 'once ' : '') + (car && !car.plate ? 'placeholder' : '')}
                       title={clash(t, t.car_id) ? 'Auto má ten den ještě jinou cestu'
+                        : car && !car.plate ? `${car.car_no}: objednané auto, zatím bez SPZ a detailů`
                         : t.car_id ? `V plánu ${carUse.get(t.car_id)?.length ?? 0}×:\n${useTitle(t.car_id)}` : undefined}>
                       <Text disabled={!canCrew} list="dl-cars" value={car?.label ?? ''} carcell
                         onSave={v => {
                           const n = v.trim()
                           if (!n) return save(t, { car_id: null })
                           const id = carByLabel.get(n.toLowerCase()) ?? carByLabel.get(n.split(',')[0].trim().toLowerCase())
-                          if (!id) return toast(`Auto „${n}“ není v seznamu aut.`, 'err')
-                          save(t, { car_id: id })
+                          if (id) return save(t, { car_id: id })
+                          // jen název půjčovny („Sixt“) → objednat nové auto s dalším číslem
+                          const rental = carCategories.find(k => k.kind === 'rental' && k.name.toLowerCase() === n.toLowerCase())
+                          if (rental) return orderRental(t, rental.name)
+                          toast(`Auto „${n}“ není v seznamu aut. Pro nové auto z půjčovny napište jen název půjčovny, např. Sixt.`, 'err')
                         }} />
                       {t.car_id && (carUse.get(t.car_id)?.length ?? 0) > 1 && <span className="times cell-times">{carUse.get(t.car_id)!.length}×</span>}
                     </td>

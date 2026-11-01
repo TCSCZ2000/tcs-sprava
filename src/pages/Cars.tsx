@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { supabase, type Car } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
-import { carAlerts, kmLeft, STATES } from '../lib/cars'
+import { carAlerts, kmLeft, OWN_STATES, RENTAL_STATES, STATES } from '../lib/cars'
 import { todayIso } from '../lib/format'
 import { Text } from './Plan'
 
@@ -37,13 +37,17 @@ export default function Cars() {
     if (error) toast(explain(error), 'err'); else { toast(`Auto ${plate} přidáno. Doplňte model, kategorii a GPS.`); reloadLists() }
   }
   async function removeCar(c: Car) {
-    if (!window.confirm(`Smazat auto ${c.plate}? Smazání nejde vrátit.`)) return
+    if (!window.confirm(`Smazat auto ${c.plate ?? c.car_no ?? 'bez SPZ'}? Smazání nejde vrátit.`)) return
     const { error } = await supabase.from('cars').delete().eq('id', c.id)
     if (error) {
-      if (error.code === '23503') return toast(`${c.plate} je u cest v Planningu nebo v Reportech, smazat ho nejde. Dejte mu stav Prodáno nebo Vráceno a zmizí z nabídky.`, 'err')
+      if (error.code === '23503') return toast(`${c.plate ?? c.car_no ?? 'bez SPZ'} je u cest v Planningu nebo v Reportech, smazat ho nejde. Dejte mu stav Prodáno nebo Vráceno a zmizí z nabídky.`, 'err')
       return toast(explain(error), 'err')
     }
-    toast(`Auto ${c.plate} smazáno`); reloadLists()
+    toast(`Auto ${c.plate ?? c.car_no ?? 'bez SPZ'} smazáno`); reloadLists()
+  }
+  async function orderRental(company: string) {
+    const { error } = await supabase.from('cars').insert({ car_category: company })
+    if (error) toast(explain(error), 'err'); else { toast(`Objednané auto ${company} přidáno s dalším volným číslem. SPZ a model doplňte, až je budete znát.`); reloadLists() }
   }
   async function addRental() {
     const name = window.prompt('Název půjčovny (např. Avis)')?.trim()
@@ -65,7 +69,8 @@ export default function Cars() {
       .filter(c => !s || `${c.label} ${c.gps ?? ''} ${c.note ?? ''} ${c.car_category ?? ''}`.toLowerCase().includes(s))
   }, [cars, hiddenCat, hiddenState, onlyAlerts, q])
 
-  const isOwn = (c: Car) => carCategories.find(k => k.name === c.car_category)?.kind === 'own'
+  const kindOf = (c: Car) => carCategories.find(k => k.name === c.car_category)?.kind
+  const isOwn = (c: Car) => kindOf(c) === 'own' || kindOf(c) === 'rental'
   const alertCount = cars.filter(c => carAlerts(c).length > 0).length
   const svc = groups.has('service'), other = groups.has('other')
   const ed = canEdit
@@ -91,7 +96,13 @@ export default function Cars() {
         <h1>Auta</h1>
         <span className="count">{rows.length} z {cars.length}</span>
         <input className="search" placeholder="Hledat SPZ, model, GPS…" value={q} onChange={e => setQ(e.target.value)} />
-        {canEdit && <button className="primary" onClick={add}>Přidat auto</button>}
+        {canEdit && <button className="primary" onClick={add}>Přidat naše auto</button>}
+        {canEdit && (
+          <select className="orderrental" value="" onChange={e => { if (e.target.value) orderRental(e.target.value) }} aria-label="Objednat auto z půjčovny">
+            <option value="">Objednat auto z půjčovny…</option>
+            {carCategories.filter(k => k.kind === 'rental').map(k => <option key={k.name} value={k.name}>{k.name}</option>)}
+          </select>
+        )}
       </div>
 
       <div className="carfilters">
@@ -117,7 +128,7 @@ export default function Cars() {
 
       {showCats && (
         <div className="catpanel">
-          <p className="intro">Naše auta (TCS a Manažerská) se číslují samy podle SPZ, nejdřív TCS a za nimi manažerská. Číslo mají Aktivní, V opravě a K prodeji, prodaná ho uvolní. Půjčená a osobní auta mají číslo, jaké jim napíšete. Kategorie, která není „v Planningu“, se nenabízí u cest ani v řádku Auta v plánu. Auta v ní ale zůstanou tady.</p>
+          <p className="intro">Naše auta (TCS a Manažerská) se číslují samy podle SPZ, nejdřív TCS a za nimi manažerská. Číslo mají Aktivní, V opravě a K prodeji, prodaná ho uvolní. Auta z půjčovny dostanou číslo podle půjčovny (Sixt1, Sixt2…) a vrácené auto ho uvolní pro další objednávku. Osobní auta řidičů mají číslo, jaké jim napíšete. Kategorie, která není „v Planningu“, se nenabízí u cest ani v řádku Auta v plánu. Auta v ní ale zůstanou tady.</p>
           <table className="grid plain catgrid">
             <thead><tr><th>Kategorie</th><th>Druh</th><th>V Planningu</th><th>Aut</th></tr></thead>
             <tbody>
@@ -153,7 +164,7 @@ export default function Cars() {
                 <tr key={c.id} className={al.some(a => a.level === 'due') ? 'alert-due' : al.length ? 'alert-soon' : ''}>
                   <td className="alerts">{al.map(a => <span key={a.text} className={'badge ' + a.level}>{a.text}</span>)}</td>
                   <td>{isOwn(c)
-                    ? <span className="ro mono" title="Naše auta se číslují samy podle SPZ (TCS, pak Manažerská)">{c.car_no ?? ''}</span>
+                    ? <span className="ro mono" title={kindOf(c) === 'rental' ? 'Auta z půjčovny se číslují samy podle půjčovny' : 'Naše auta se číslují samy podle SPZ (TCS, pak Manažerská)'}>{c.car_no ?? ''}</span>
                     : txt(c, 'car_no', { mono: true })}</td>
                   <td>{txt(c, 'plate', { mono: true, upper: true })}</td>
                   <td>{txt(c, 'model')}</td>
@@ -173,7 +184,7 @@ export default function Cars() {
                   <td>{txt(c, 'gps')}</td>
                   <td>
                     <select disabled={!ed} value={c.state ?? ''} onChange={e => saveCar(c, { state: e.target.value || null })}>
-                      {STATES.map(x => <option key={x}>{x}</option>)}
+                      {(kindOf(c) === 'rental' ? RENTAL_STATES : OWN_STATES).map(x => <option key={x}>{x}</option>)}
                     </select>
                   </td>
                   {svc && <>
@@ -189,7 +200,7 @@ export default function Cars() {
                     <td>{txt(c, 'category')}</td><td>{txt(c, 'loc')}</td><td>{txt(c, 'uta_card')}</td><td>{txt(c, 'insurer')}</td><td>{txt(c, 'tyres')}</td>
                   </>}
                   <td>{txt(c, 'note', { wide: true })}</td>
-                  {canEdit && <td className="w-x"><button className="ghost" title={`Smazat auto ${c.plate}`} aria-label={`Smazat auto ${c.plate}`} onClick={() => removeCar(c)}>×</button></td>}
+                  {canEdit && <td className="w-x"><button className="ghost" title={`Smazat auto ${c.plate ?? c.car_no ?? 'bez SPZ'}`} aria-label={`Smazat auto ${c.plate ?? c.car_no ?? 'bez SPZ'}`} onClick={() => removeCar(c)}>×</button></td>}
                 </tr>
               )
             })}

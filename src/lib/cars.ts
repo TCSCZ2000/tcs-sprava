@@ -1,7 +1,9 @@
 import type { Car, CarCategory } from './supabase'
 
-export const ACTIVE_STATES = ['Aktivní', 'V opravě']
-export const STATES = ['Aktivní', 'V opravě', 'K prodeji', 'Prodáno', 'Vráceno']
+export const ACTIVE_STATES = ['Aktivní', 'V opravě', 'Objednáno', 'Půjčeno']
+export const OWN_STATES = ['Aktivní', 'V opravě', 'K prodeji', 'Prodáno']
+export const RENTAL_STATES = ['Objednáno', 'Půjčeno', 'Vráceno']
+export const STATES = [...OWN_STATES, ...RENTAL_STATES]
 export const SERVICE_SOON_KM = 2000
 export const DATE_SOON_DAYS = 30
 
@@ -21,6 +23,7 @@ const km = (n: number) => n.toLocaleString('cs-CZ')
 export function carAlerts(c: Car): Alert[] {
   if (!ACTIVE_STATES.includes(c.state ?? 'Aktivní')) return []
   const out: Alert[] = []
+  if (!c.plate) out.push({ level: c.state === 'Půjčeno' ? 'due' : 'soon', text: 'Chybí SPZ a detaily' })
   if (c.km_current != null && c.service_next_km != null) {
     const left = c.service_next_km - c.km_current
     if (left <= 0) out.push({ level: 'due', text: `Servis po termínu o ${km(-left)} km` })
