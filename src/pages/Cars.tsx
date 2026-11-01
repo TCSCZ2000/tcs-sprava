@@ -36,6 +36,15 @@ export default function Cars() {
     const { error } = await supabase.from('cars').insert({ plate, car_category: 'TCS', state: 'Aktivní' })
     if (error) toast(explain(error), 'err'); else { toast(`Auto ${plate} přidáno. Doplňte model, kategorii a GPS.`); reloadLists() }
   }
+  async function removeCar(c: Car) {
+    if (!window.confirm(`Smazat auto ${c.plate}? Smazání nejde vrátit.`)) return
+    const { error } = await supabase.from('cars').delete().eq('id', c.id)
+    if (error) {
+      if (error.code === '23503') return toast(`${c.plate} je u cest v Planningu nebo v Reportech, smazat ho nejde. Dejte mu stav Prodáno nebo Vráceno a zmizí z nabídky.`, 'err')
+      return toast(explain(error), 'err')
+    }
+    toast(`Auto ${c.plate} smazáno`); reloadLists()
+  }
   async function addRental() {
     const name = window.prompt('Název půjčovny (např. Avis)')?.trim()
     if (!name) return
@@ -133,6 +142,7 @@ export default function Cars() {
               {svc && <><th>Aktuální km</th><th>Km zapsané</th><th>Poslední servis</th><th>Další servis</th><th>Zbývá km</th><th>STK do</th><th>Známka CZ do</th></>}
               {other && <><th>Třída</th><th>LOC</th><th>UTA</th><th>Pojišťovna</th><th>Pneu</th></>}
               <th>Poznámka</th>
+              {canEdit && <th className="w-x" aria-label="Akce" />}
             </tr>
           </thead>
           <tbody>
@@ -176,6 +186,7 @@ export default function Cars() {
                     <td>{txt(c, 'category')}</td><td>{txt(c, 'loc')}</td><td>{txt(c, 'uta_card')}</td><td>{txt(c, 'insurer')}</td><td>{txt(c, 'tyres')}</td>
                   </>}
                   <td>{txt(c, 'note', { wide: true })}</td>
+                  {canEdit && <td className="w-x"><button className="ghost" title={`Smazat auto ${c.plate}`} aria-label={`Smazat auto ${c.plate}`} onClick={() => removeCar(c)}>×</button></td>}
                 </tr>
               )
             })}
