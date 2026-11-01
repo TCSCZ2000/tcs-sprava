@@ -270,7 +270,7 @@ export default function Plan() {
                     style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
                     <td className="statuscell">
                       <StatusInput disabled={!canStatus} color={st?.color}
-                        value={t.ref_tcs ?? t.status ?? ''} title={t.ref_tcs ? `${t.ref_tcs} · ${t.status ?? 'bez statusu'}` : undefined}
+                        value={statusLabel(t.status, t.ref_tcs)} title={t.ref_tcs ? `${t.ref_tcs} · ${t.status ?? 'bez statusu'}` : t.status ?? undefined}
                         onSave={v => {
                           const n = v.trim()
                           if (!n) return
@@ -393,6 +393,16 @@ function Text(props: {
 
 // Status: vyber ze seznamu, nebo napiš referenční číslo A12345 → Skupina
 // Po kliknutí se políčko vyprázdní, aby nabídka ukázala všechny statusy; bez zápisu se vrátí původní hodnota
+// Reference + zkratka stavu: A12345 (Skupina), A12345-Dep, A12345-Fin …
+const SHORT: Record<string, string> = {
+  'HEADS-UP': 'HU', Confirmed: 'Conf', Send: 'Send', 'On the road': 'Road', Departed: 'Dep', Report: 'Rep', Finished: 'Fin', Canceled: 'Canc',
+}
+function statusLabel(status: string | null, ref: string | null) {
+  if (!ref) return status ?? ''
+  if (!status || status === GROUP) return ref
+  return `${ref}-${SHORT[status] ?? status}`
+}
+
 function StatusInput(props: { value: string; color?: string; disabled?: boolean; title?: string; onSave: (v: string) => void }) {
   const [v, setV] = useState(props.value)
   const [editing, setEditing] = useState(false)

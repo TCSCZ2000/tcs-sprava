@@ -175,7 +175,7 @@ tr.trip.newday > td { border-top: 2px solid var(--ink); }
 .plan.size-s .grid { font-size: 13px; }
 .plan.size-s .grid td { height: 27px; }
 .plan.size-s .cell { padding: .15rem .3rem; }
-.plan.size-s .statusinput { padding: .15rem .35rem; width: 7.4rem; }
+.plan.size-s .statusinput { padding: .15rem .35rem; width: 7.9rem; }
 .plan.size-s .dayrow td { padding: .55rem .5rem .2rem; }
 .plan.size-s .daylabel { font-size: 1.05rem; }
 
@@ -185,7 +185,7 @@ tr.trip.newday > td { border-top: 2px solid var(--ink); }
 .plan.size-xs .cell.wide { min-width: 9.5rem; }
 .plan.size-xs .cell.person { min-width: 7rem; }
 .plan.size-xs .cell.carcell { min-width: 13rem; }
-.plan.size-xs .statusinput { padding: .05rem .3rem; width: 6.6rem; }
+.plan.size-xs .statusinput { padding: .05rem .3rem; width: 7.3rem; }
 .plan.size-xs .grid th { padding: .3rem .3rem; font-size: .72rem; }
 .plan.size-xs .dayrow td { padding: .4rem .5rem .15rem; }
 .plan.size-xs .daylabel { font-size: .95rem; }
