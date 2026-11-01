@@ -15,7 +15,7 @@ export default function Plan() {
   const [trips, setTrips] = useState<Trip[]>([])
   const [from, setFrom] = useState(todayIso(-1))
   const [to, setTo] = useState('')
-  const [hidden, setHidden] = useState<Set<string>>(new Set(['Canceled', 'Finished']))
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [carFilter, setCarFilter] = useState<string | null>(null)
