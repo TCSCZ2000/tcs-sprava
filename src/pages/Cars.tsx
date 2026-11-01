@@ -65,6 +65,7 @@ export default function Cars() {
       .filter(c => !s || `${c.label} ${c.gps ?? ''} ${c.note ?? ''} ${c.car_category ?? ''}`.toLowerCase().includes(s))
   }, [cars, hiddenCat, hiddenState, onlyAlerts, q])
 
+  const isOwn = (c: Car) => carCategories.find(k => k.name === c.car_category)?.kind === 'own'
   const alertCount = cars.filter(c => carAlerts(c).length > 0).length
   const svc = groups.has('service'), other = groups.has('other')
   const ed = canEdit
@@ -116,7 +117,7 @@ export default function Cars() {
 
       {showCats && (
         <div className="catpanel">
-          <p className="intro">Kategorie, která není „v Planningu“, se nenabízí u cest ani v řádku Auta v plánu. Auta v ní ale zůstanou tady.</p>
+          <p className="intro">Naše auta (TCS a Manažerská) se číslují samy podle SPZ, nejdřív TCS a za nimi manažerská. Číslo mají Aktivní, V opravě a K prodeji, prodaná ho uvolní. Půjčená a osobní auta mají číslo, jaké jim napíšete. Kategorie, která není „v Planningu“, se nenabízí u cest ani v řádku Auta v plánu. Auta v ní ale zůstanou tady.</p>
           <table className="grid plain catgrid">
             <thead><tr><th>Kategorie</th><th>Druh</th><th>V Planningu</th><th>Aut</th></tr></thead>
             <tbody>
@@ -151,7 +152,9 @@ export default function Cars() {
               return (
                 <tr key={c.id} className={al.some(a => a.level === 'due') ? 'alert-due' : al.length ? 'alert-soon' : ''}>
                   <td className="alerts">{al.map(a => <span key={a.text} className={'badge ' + a.level}>{a.text}</span>)}</td>
-                  <td>{txt(c, 'car_no', { mono: true })}</td>
+                  <td>{isOwn(c)
+                    ? <span className="ro mono" title="Naše auta se číslují samy podle SPZ (TCS, pak Manažerská)">{c.car_no ?? ''}</span>
+                    : txt(c, 'car_no', { mono: true })}</td>
                   <td>{txt(c, 'plate', { mono: true, upper: true })}</td>
                   <td>{txt(c, 'model')}</td>
                   <td>{txt(c, 'color')}</td>
