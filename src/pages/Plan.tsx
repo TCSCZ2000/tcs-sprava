@@ -5,6 +5,7 @@ import { computeStart, dateLabel, docState, hm, inkOn, todayIso } from '../lib/f
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
+const GROUP = 'Skupina ✅'
 
 export default function Plan() {
   const { level, people, cars, places, statuses, docs, toast, reloadLists } = useApp()
@@ -173,6 +174,7 @@ export default function Plan() {
         {canEdit && <button className="primary" onClick={addTrip}>Nová cesta</button>}
       </div>
 
+      <datalist id="dl-status">{statuses.map(x => <option key={x.name} value={x.name} />)}</datalist>
       <datalist id="dl-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name} />)}</datalist>
       <datalist id="dl-places">{places.map(p => <option key={p.id} value={p.name} />)}</datalist>
       <datalist id="dl-cars">{cars.filter(c => c.state === 'Aktivní' || c.state === 'V opravě').map(c => <option key={c.id} value={c.label} />)}</datalist>
@@ -222,11 +224,16 @@ export default function Plan() {
                 return (
                   <tr key={t.id} className="trip" style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
                     <td className="statuscell">
-                      <select disabled={!canEdit} value={t.status ?? ''} onChange={e => save(t, { status: e.target.value || null })}
-                        style={{ background: st?.color, color: st ? inkOn(st.color) : undefined }}>
-                        <option value="">–</option>
-                        {statuses.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-                      </select>
+                      <StatusInput disabled={!canEdit} color={st?.color}
+                        value={t.status === GROUP && t.ref_tcs ? t.ref_tcs : (t.status ?? '')}
+                        onSave={v => {
+                          const n = v.trim()
+                          if (!n) return save(t, { status: null })
+                          if (/^a\d{5}$/i.test(n)) return save(t, { status: GROUP, ref_tcs: n.toUpperCase() })
+                          const hit = statuses.find(x => x.name.toLowerCase() === n.toLowerCase())
+                          if (!hit) return toast(`Napište status ze seznamu nebo referenční číslo ve tvaru A12345.`, 'err')
+                          save(t, { status: hit.name })
+                        }} />
                     </td>
                     <td><Text disabled={!canEdit} value={hm(t.trip_time)} placeholder="hh:mm" time
                       onSave={v => { const n = normTime(v); if (n === undefined) return toast('Čas zapište jako 8:30 nebo 0830.', 'err'); save(t, { trip_time: n }) }} /></td>
@@ -322,6 +329,23 @@ function Text(props: {
         if (e.key === 'Escape') { setV(props.value); (e.target as HTMLInputElement).blur() }
       }}
     />
+  )
+}
+
+// Status: vyber ze seznamu, nebo napiš referenční číslo A12345 → Skupina
+function StatusInput(props: { value: string; color?: string; disabled?: boolean; onSave: (v: string) => void }) {
+  const [v, setV] = useState(props.value)
+  useEffect(() => setV(props.value), [props.value])
+  return (
+    <input className="statusinput" list="dl-status" value={v} disabled={props.disabled} placeholder="status / A12345"
+      style={{ background: props.color, color: props.color ? inkOn(props.color) : undefined }}
+      onFocus={e => e.target.select()}
+      onChange={e => setV(e.target.value)}
+      onBlur={() => { if (v !== props.value) props.onSave(v) }}
+      onKeyDown={e => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        if (e.key === 'Escape') { setV(props.value); (e.target as HTMLInputElement).blur() }
+      }} />
   )
 }
 

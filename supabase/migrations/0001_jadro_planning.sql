@@ -171,7 +171,7 @@ insert into statuses values
   ('HEADS-UP',    '#FF0000', 1, false),
   ('Confirmed',   '#92D050', 2, false),
   ('Send',        '#FFFF00', 3, true),
-  ('Skupina ✅',  '#C6E0B4', 4, true),
+  ('Skupina ✅',  '#2F75B5', 4, true),
   ('Jti',         '#FFC000', 5, false),
   ('On the road', '#E59866', 6, true),
   ('Departed',    '#00B050', 7, true),
