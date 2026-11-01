@@ -10,7 +10,11 @@ const EARLY = ['HEADS-UP', 'Confirmed', 'Send']
 
 export default function Plan() {
   const { level, people, cars, places, statuses, docs, toast, reloadLists } = useApp()
-  const canEdit = level('planning') === 'write'
+  const canNotes = level('planning') === 'write'
+  const canCreate = level('planning_create') === 'write'
+  const canStatus = level('planning_status') === 'write'
+  const canCrew = level('planning_crew') === 'write'
+  const canRoute = level('planning_route') === 'write'
   const canAddPlace = level('places') === 'write'
   const [trips, setTrips] = useState<Trip[]>([])
   const [from, setFrom] = useState(todayIso(-1))
@@ -184,7 +188,7 @@ export default function Plan() {
           <button className={'fs-s' + (size === 's' ? ' on' : '')} aria-pressed={size === 's'} onClick={() => setSize('s')} title="Menší písmo">A</button>
           <button className={'fs-xs' + (size === 'xs' ? ' on' : '')} aria-pressed={size === 'xs'} onClick={() => setSize('xs')} title="Nejmenší písmo">A</button>
         </div>
-        {canEdit && <button className="primary" onClick={addTrip}>Nová cesta</button>}
+        {canCreate && <button className="primary" onClick={addTrip}>Nová cesta</button>}
       </div>
 
       <datalist id="dl-status">{statuses.map(x => <option key={x.name} value={x.name} />)}</datalist>
@@ -218,13 +222,13 @@ export default function Plan() {
               <th className="w-status">Status</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th>
               <th>Guard 1</th><th>Guard 2</th><th>Guard 3</th><th>Auto</th><th>Odkud</th>
               <th className="w-ref">Ref. TCS</th><th className="w-time">Start</th><th>Poznámka</th><th>Změna</th>
-              {canEdit && <th className="w-x" aria-label="Akce" />}
+              {canCreate && <th className="w-x" aria-label="Akce" />}
             </tr>
           </thead>
           {days.map(([date, rows]) => (
             <tbody key={date}>
               {view === 'days' && <tr className="dayrow">
-                <td colSpan={canEdit ? 15 : 14}>
+                <td colSpan={canCreate ? 15 : 14}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
@@ -238,7 +242,7 @@ export default function Plan() {
                   <tr key={t.id} className={'trip' + (view === 'list' && i > 0 && rows[i - 1].trip_date !== t.trip_date ? ' newday' : '')}
                     style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
                     <td className="statuscell">
-                      <StatusInput disabled={!canEdit} color={st?.color}
+                      <StatusInput disabled={!canStatus} color={st?.color}
                         value={t.ref_tcs ?? t.status ?? ''} title={t.ref_tcs ? `${t.ref_tcs} · ${t.status ?? 'bez statusu'}` : undefined}
                         onSave={v => {
                           const n = v.trim()
@@ -253,13 +257,13 @@ export default function Plan() {
                           save(t, { status: hit.name })
                         }} />
                     </td>
-                    <td className="datecell"><Text disabled={!canEdit} value={shortDay(t.trip_date)} time
+                    <td className="datecell"><Text disabled={!canRoute} value={shortDay(t.trip_date)} time
                       onSave={v => { const d = parseDay(v, t.trip_date); if (!d) return toast('Datum zapište jako 3.11. nebo 3.11.2026.', 'err'); save(t, { trip_date: d }) }} /></td>
-                    <td><Text disabled={!canEdit} value={hm(t.trip_time)} placeholder="hh:mm" time
+                    <td><Text disabled={!canRoute} value={hm(t.trip_time)} placeholder="hh:mm" time
                       onSave={v => { const n = normTime(v); if (n === undefined) return toast('Čas zapište jako 8:30 nebo 0830.', 'err'); save(t, { trip_time: n }) }} /></td>
-                    <td><Text disabled={!canEdit} list="dl-places" value={pup?.name ?? ''} wide
+                    <td><Text disabled={!canRoute} list="dl-places" value={pup?.name ?? ''} wide
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { pup_id: id }) }} /></td>
-                    <td><Text disabled={!canEdit} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
+                    <td><Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} /></td>
                     {GUARDS.map(g => {
                       const p = personBy.get(t[g] ?? '')
@@ -268,7 +272,7 @@ export default function Plan() {
                       return (
                         <td key={g} className={(clash(t, t[g]) ? 'clash ' : '') + (flagged ? 'changed ' : '')}
                           title={clash(t, t[g]) ? 'Tenhle člověk má ten den ještě jinou cestu' : d === 'expired' ? 'Pas po platnosti' : d === 'soon' ? 'Pas končí do 90 dní' : undefined}>
-                          <Text disabled={!canEdit} list="dl-people" value={p?.short_name ?? ''} person
+                          <Text disabled={!canCrew} list="dl-people" value={p?.short_name ?? ''} person
                             onSave={v => {
                               const n = v.trim()
                               if (!n) return save(t, { [g]: null } as Partial<Trip>)
@@ -284,7 +288,7 @@ export default function Plan() {
                       + (t.car_id && carUse.get(t.car_id)?.length === 1 ? 'once' : '')}
                       title={clash(t, t.car_id) ? 'Auto má ten den ještě jinou cestu'
                         : t.car_id ? `V plánu ${carUse.get(t.car_id)?.length ?? 0}×:\n${useTitle(t.car_id)}` : undefined}>
-                      <Text disabled={!canEdit} list="dl-cars" value={car?.label ?? ''} carcell
+                      <Text disabled={!canCrew} list="dl-cars" value={car?.label ?? ''} carcell
                         onSave={v => {
                           const n = v.trim()
                           if (!n) return save(t, { car_id: null })
@@ -295,27 +299,27 @@ export default function Plan() {
                       {t.car_id && (carUse.get(t.car_id)?.length ?? 0) > 1 && <span className="times cell-times">{carUse.get(t.car_id)!.length}×</span>}
                     </td>
                     <td className="origin">
-                      <select disabled={!canEdit} value={t.car_origin ?? ''}
+                      <select disabled={!canCrew} value={t.car_origin ?? ''}
                         onChange={e => save(t, { car_origin: e.target.value || null, car_origin_other: e.target.value === 'Jiné' ? t.car_origin_other : null })}>
                         <option value="">–</option><option>Praha</option><option>Příbram</option><option>Jiné</option>
                       </select>
                       {t.car_origin === 'Jiné' && (
-                        <Text disabled={!canEdit} value={t.car_origin_other ?? ''} placeholder="kde" onSave={v => save(t, { car_origin_other: v || null })} />
+                        <Text disabled={!canCrew} value={t.car_origin_other ?? ''} placeholder="kde" onSave={v => save(t, { car_origin_other: v || null })} />
                       )}
                     </td>
-                    <td><Text disabled={!canEdit} value={t.ref_tcs ?? ''} placeholder="A·····" mono
+                    <td><Text disabled={!canStatus} value={t.ref_tcs ?? ''} placeholder="A·····" mono
                       onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
                     <td className={'start' + (start === 'ferry' ? ' ferry' : '')}>{start}</td>
-                    <td><Text disabled={!canEdit} value={t.remarks ?? ''} wide onSave={v => save(t, { remarks: v || null })} /></td>
+                    <td><Text disabled={!canNotes} value={t.remarks ?? ''} wide onSave={v => save(t, { remarks: v || null })} /></td>
                     <td className="change">
                       {t.crew_change && (
                         <span className="changenote" title="Posádka se změnila po odeslání zákazníkovi">
                           {t.crew_change}
-                          {canEdit && <button className="link" onClick={() => save(t, { crew_change: null })}>Sděleno zákazníkovi</button>}
+                          {(canNotes || canCrew) && <button className="link" onClick={() => save(t, { crew_change: null })}>Sděleno zákazníkovi</button>}
                         </span>
                       )}
                     </td>
-                    {canEdit && <td className="w-x"><button className="ghost" title="Smazat cestu" aria-label="Smazat cestu" onClick={() => removeTrip(t)}>×</button></td>}
+                    {canCreate && <td className="w-x"><button className="ghost" title="Smazat cestu" aria-label="Smazat cestu" onClick={() => removeTrip(t)}>×</button></td>}
                   </tr>
                 )
               })}
@@ -323,7 +327,7 @@ export default function Plan() {
           ))}
         </table>
         {loaded && days.length === 0 && (
-          <p className="empty">V tomhle období nejsou žádné cesty{hidden.size ? ' s vybranými statusy' : ''}.{canEdit && ' Přidejte první tlačítkem Nová cesta.'}</p>
+          <p className="empty">V tomhle období nejsou žádné cesty{hidden.size ? ' s vybranými statusy' : ''}.{canCreate && ' Přidejte první tlačítkem Nová cesta.'}</p>
         )}
       </div>
 

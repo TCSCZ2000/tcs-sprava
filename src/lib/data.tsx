@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Car, type Level, type Person, type PersonDocs, type Place, type Profile, type Status } from './supabase'
 
-export const MODULES = ['planning', 'people', 'people_docs', 'cars', 'places', 'users'] as const
+export const MODULES = ['planning', 'planning_create', 'planning_status', 'planning_crew', 'planning_route', 'people', 'people_docs', 'cars', 'places', 'users'] as const
 export type ModuleKey = (typeof MODULES)[number]
 
 interface Ctx {
@@ -112,6 +112,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 export function explain(err: { message?: string; code?: string } | null): string {
   if (!err) return ''
   const m = err.message ?? ''
+  if (m.startsWith('Nemáte oprávnění')) return m
   if (m.includes('trips_ref_tcs_check')) return 'Ref. TCS musí mít tvar A12345.'
   if (m.includes('trips_ref_tcs_key')) return 'Tohle Ref. TCS už má jiná cesta.'
   if (m.includes('row-level security') || err.code === '42501') return 'Na tuhle změnu nemáte oprávnění.'

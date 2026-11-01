@@ -196,3 +196,20 @@ tr.trip.newday > td { border-top: 2px solid var(--ink); }
 .emblem { width: 34px; height: 34px; display: block; }
 .emblem.big { width: 96px; height: 96px; margin: 0 auto .75rem; }
 .wordmark { display: block; width: 100%; max-width: 340px; height: auto; margin: 0 auto 1.5rem; }
+
+/* Správa uživatelů – práva */
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .5rem 1rem; margin: 0 0 1rem; max-width: 1100px; }
+.roles div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem; }
+.roles dt { font-weight: 600; }
+.roles dd { margin: .15rem 0 0; color: var(--ink-2); font-size: .9rem; }
+.access { white-space: normal; display: inline-block; max-width: 34rem; margin-right: .5rem; color: var(--ink-2); font-size: .9rem; }
+.permgroups { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: .75rem; }
+.permgroup { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin: 0; padding: .5rem .8rem .7rem; }
+.permgroup legend { font-weight: 600; padding: 0 .3rem; }
+.permline { display: grid; grid-template-columns: 11rem auto 1fr; gap: .6rem; align-items: center; padding: .25rem 0; }
+.permline.off { opacity: .45; }
+.permlabel { font-size: .9rem; }
+.permsrc { font-size: .78rem; color: var(--ink-2); }
+.seg.small button { padding: .2rem .55rem; font-size: .85rem; }
+.seg.small button:disabled { cursor: not-allowed; }
+.seg button { white-space: nowrap; }

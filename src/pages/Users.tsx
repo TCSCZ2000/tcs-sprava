@@ -61,6 +61,17 @@ export default function Users() {
   }
 
   const pending = invites.filter(i => !profiles.some(p => p.email === i.email))
+  const roleLevel = (r: Role, k: string): Level => defs.find(d => d.role === r && d.module === k)?.level ?? 'none'
+  const eff = (p: Profile, k: string): Level => perms.find(x => x.user_id === p.id && x.module === k)?.level ?? roleLevel(p.role, k)
+  const summary = (p: Profile) => {
+    const pl = eff(p, 'planning')
+    if (pl === 'none') return 'bez Planningu'
+    const can = [['planning_create', 'cesty'], ['planning_status', 'status'], ['planning_crew', 'posádka'], ['planning_route', 'trasa']]
+      .filter(([k]) => eff(p, k) === 'write').map(([, l]) => l)
+    const tabs = [['people', 'Lidé'], ['cars', 'Auta'], ['places', 'Místa'], ['users', 'Uživatelé']]
+      .filter(([k]) => eff(p, k) !== 'none').map(([k, l]) => l + (eff(p, k) === 'read' ? ' (čte)' : ''))
+    return `Planning: ${can.length === 4 ? 'upravuje vše' : can.length ? 'mění ' + can.join(', ') : 'jen čte'}${tabs.length ? ' · ' + tabs.join(', ') : ''}`
+  }
 
   return (
     <section className="users">
@@ -75,7 +86,12 @@ export default function Users() {
         </label>
         <button className="primary" type="submit">Pozvat</button>
       </form>
-      <p className="intro">Pozvaný se přihlásí svým e-mailem, přijde mu odkaz. Bez pozvánky se do aplikace nedostane nikdo. Role nastaví výchozí práva, u každého člověka můžete udělat výjimku.</p>
+      <p className="intro">Pozvaný se přihlásí svým e-mailem, přijde mu odkaz. Bez pozvánky se do aplikace nedostane nikdo. Role nastaví výchozí práva, u každého člověka pak v „Upravit práva“ můžete cokoli povolit nebo zakázat.</p>
+      <dl className="roles">
+        <div><dt>Správce</dt><dd>Vidí a upravuje všechno, včetně dokladů, aut a správy uživatelů.</dd></div>
+        <div><dt>Dispečer</dt><dd>Plánuje: zakládá a maže cesty, mění status, posádku, auto i trasu, upravuje Lidi a Místa. Doklady a Auta jen čte, uživatele nevidí.</dd></div>
+        <div><dt>Náhled</dt><dd>Planning, Podklad, Lidi, Auta a Místa jen čte, nic nezmění. Doklady a pasy nevidí.</dd></div>
+      </dl>
 
       <div className="tablewrap">
         <table className="grid plain">
@@ -93,31 +109,22 @@ export default function Users() {
                     </select>
                   </td>
                   <td>
-                    <button className="link" onClick={() => update(p, { active: !p.active })}>{p.active ? 'Zablokovat' : 'Odblokovat'}</button>
+                    <span className="ro access">{p.active ? summary(p) : 'zablokovaný'}</span>
+                    {p.id !== profile?.id && (
+                      <button className="link" onClick={() => update(p, { active: !p.active })}>{p.active ? 'Zablokovat' : 'Odblokovat'}</button>
+                    )}
                   </td>
                   <td>
                     <button className="link" onClick={() => setOpen(open === p.id ? null : p.id)}>
-                      {open === p.id ? 'Skrýt práva' : `Práva${own.length ? ` (${own.length} výjimky)` : ''}`}
+                      {open === p.id ? 'Skrýt práva' : `Upravit práva${own.length ? ` (výjimky: ${own.length})` : ''}`}
                     </button>
                   </td>
                 </tr>,
                 open === p.id && (
                   <tr key={p.id + '-perm'} className="permrow">
                     <td colSpan={5}>
-                      <div className="permgrid">
-                        {mods.map(m => {
-                          const def = defs.find(d => d.role === p.role && d.module === m.key)?.level ?? 'none'
-                          const ov = own.find(x => x.module === m.key)?.level
-                          return (
-                            <label key={m.key} className={'field' + (ov ? ' override' : '')}>{m.name}
-                              <select value={ov ?? ''} onChange={e => setPerm(p, m.key, e.target.value)}>
-                                <option value="">podle role ({LEVEL[def]})</option>
-                                {(Object.keys(LEVEL) as Level[]).map(l => <option key={l} value={l}>{LEVEL[l]}</option>)}
-                              </select>
-                            </label>
-                          )
-                        })}
-                      </div>
+                      <PermEditor role={p.role} eff={k => eff(p, k)} isOverride={k => own.some(x => x.module === k)}
+                        onSet={(k, l) => setPerm(p, k, l === roleLevel(p.role, k) ? '' : l)} />
                     </td>
                   </tr>
                 ),
@@ -138,5 +145,53 @@ export default function Users() {
         </table>
       </div>
     </section>
+  )
+}
+
+type Row = { key: string; label: string; kind: 'tri' | 'bin'; names?: Partial<Record<Level, string>> }
+const GROUPS: { tab: string; rows: Row[] }[] = [
+  { tab: 'Planning a Podklad', rows: [
+    { key: 'planning', label: 'Přístup', kind: 'tri', names: { none: 'nevidí', read: 'jen vidí', write: 'píše poznámky' } },
+    { key: 'planning_create', label: 'Přidávat a mazat cesty', kind: 'bin' },
+    { key: 'planning_status', label: 'Status a reference', kind: 'bin' },
+    { key: 'planning_crew', label: 'Posádka a auto', kind: 'bin' },
+    { key: 'planning_route', label: 'Datum, čas a trasa', kind: 'bin' },
+  ] },
+  { tab: 'Lidé', rows: [
+    { key: 'people', label: 'Kontakty', kind: 'tri' },
+    { key: 'people_docs', label: 'Doklady a pasy', kind: 'tri' },
+  ] },
+  { tab: 'Auta', rows: [{ key: 'cars', label: 'Přístup', kind: 'tri' }] },
+  { tab: 'Místa', rows: [{ key: 'places', label: 'Přístup', kind: 'tri' }] },
+  { tab: 'Uživatelé', rows: [{ key: 'users', label: 'Přístup', kind: 'tri' }] },
+]
+
+function PermEditor(props: { role: Role; eff: (k: string) => Level; isOverride: (k: string) => boolean; onSet: (k: string, l: Level) => void }) {
+  return (
+    <div className="permgroups">
+      {GROUPS.map(g => (
+        <fieldset key={g.tab} className="permgroup">
+          <legend>{g.tab}</legend>
+          {g.rows.map(r => {
+            const cur = props.eff(r.key)
+            const off = r.key.startsWith('planning_') && props.eff('planning') === 'none'
+            const opts: Level[] = r.kind === 'bin' ? ['none', 'write'] : ['none', 'read', 'write']
+            const name = (l: Level) => r.names?.[l] ?? (r.kind === 'bin' ? (l === 'write' ? 'smí' : 'nesmí') : LEVEL[l])
+            return (
+              <div key={r.key} className={'permline' + (off ? ' off' : '')}>
+                <span className="permlabel">{r.label}</span>
+                <span className="seg small" role="group" aria-label={r.label}>
+                  {opts.map(l => (
+                    <button key={l} type="button" disabled={off} className={cur === l ? 'on' : ''} aria-pressed={cur === l}
+                      onClick={() => props.onSet(r.key, l)}>{name(l)}</button>
+                  ))}
+                </span>
+                <span className="permsrc">{props.isOverride(r.key) ? 'výjimka' : 'podle role'}</span>
+              </div>
+            )
+          })}
+        </fieldset>
+      ))}
+    </div>
   )
 }
