@@ -118,7 +118,7 @@ export default function Reports() {
               <th>Datum</th><th>Zákazník</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th>Posádka</th><th>Auto</th>
               {TIMES.map(x => <th key={x.key}>{x.label}</th>)}
               <th>Km Pup</th><th>Km Dop</th><th>Km celkem</th><th>Mýto €</th>
-              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th>{seePrice && <><th>Cena podle</th><th>Cena € bez DPH</th></>}<th>Poznámka</th><th />
+              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th>{seePrice && <><th>Cena podle</th><th title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena € bez DPH</th></>}<th>Poznámka</th><th />
             </tr>
           </thead>
           {groups.map(([cust, rows]) => (
@@ -171,17 +171,29 @@ export default function Reports() {
                     {seePrice && (() => {
                       const route = routeBy.get(`${t.pup_id}|${t.dop_id}`)
                       const opts = route ? rprices.filter(p => p.route_id === route.id) : []
-                      const pr = tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null)
+                      const pr = tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, escort ? Number(escort.replace(',', '.')) : null)
+                      const auto = tripPrice({ ...t, price_manual: null }, route, rprices, total ? Number(total.replace(',', '.')) : null, escort ? Number(escort.replace(',', '.')) : null)
                       return <>
                         <td>
-                          {route
+                          {t.price_manual != null
+                            ? <span className="ro manualprice">ručně {ed && <button className="link small" onClick={() => save(t, { price_manual: null })} title="Zrušit ruční cenu a počítat znovu">zrušit</button>}</span>
+                            : route
                             ? <select disabled={!ed} value={t.route_price_id ?? ''} onChange={e => save(t, { route_price_id: e.target.value || null })}>
                                 <option value="">sazby ({route.rate_h} €/h, {route.rate_km} €/km)</option>
                                 {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {eur(Number(p.price))}</option>)}
                               </select>
                             : <span className="ro missingtxt" title="V Trasách a cenách tahle trasa není">chybí trasa</span>}
                         </td>
-                        <td className="ro num" title={pr?.how}>{pr ? eur(pr.price) : ''}</td>
+                        <td className="num" title={pr?.how}>
+                          <Text disabled={!ed} value={pr ? eur(pr.price) : ''} time mono placeholder={ed ? 'zadat' : ''}
+                            onSave={v => {
+                              const n = num(v.replace('€', ''))
+                              if (n === undefined) return toast('Cenu pište jako číslo, třeba 1250 nebo 1250,50.', 'err')
+                              if (n === null) return save(t, { price_manual: null })
+                              if (auto && Math.abs(n - auto.price) < 0.005 && t.price_manual == null) return
+                              save(t, { price_manual: n })
+                            }} />
+                        </td>
                       </>
                     })()}
                     <td><Text disabled={!ed} value={t.report_note ?? ''} wide onSave={v => save(t, { report_note: v || null })} /></td>

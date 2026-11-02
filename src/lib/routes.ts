@@ -13,10 +13,27 @@ export const totalToll = (r: Route) => n(r.ho_pup_toll) + n(r.pup_dop_toll) + n(
 
 export const eur = (v: number) => v.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' €'
 
-// Cena cesty jako v Přehledu 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto, nebo pevná cena
-export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null) {
+const fmtH = (h: number) => h.toString().replace('.', ',')
+
+// Cena cesty jako v Přehledu 10_26.
+// Ruční cena přebije vše. Pevná cena platí pro X h mezi Pup a Dop; skutečné hodiny navíc
+// (odjezd Pup → příjezd Dop) se zaokrouhlí nahoru na půlhodiny a připočtou × sazba/h.
+// Jinak: hodiny každého z posádky × sazba/h + km × sazba/km + mýto.
+export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, escortH: number | null) {
+  if (t.price_manual != null) return { price: Number(t.price_manual), how: 'Ruční cena (domluva se zákazníkem)' }
   const fixed = t.route_price_id ? prices.find(p => p.id === t.route_price_id) : undefined
-  if (fixed) return { price: Number(fixed.price), how: `Pevná cena ${fixed.label}` }
+  if (fixed) {
+    const base = Number(fixed.price)
+    if (fixed.pup_dop_h == null || !route) return { price: base, how: `Pevná cena ${fixed.label}` }
+    if (escortH == null) return { price: base, how: `Pevná cena ${fixed.label} (hodiny navíc se dopočtou, až bude odjezd Pup a příjezd Dop)` }
+    const extra = Math.max(0, Math.ceil((escortH - Number(fixed.pup_dop_h)) * 2 - 1e-9) / 2)
+    if (extra === 0) return { price: base, how: `Pevná cena ${fixed.label}, skutečně ${fmtH(Math.round(escortH * 100) / 100)} h – nic navíc` }
+    const add = extra * Number(route.rate_h)
+    return {
+      price: Math.round((base + add) * 100) / 100,
+      how: `Pevná cena ${fixed.label} ${eur(base)} + ${fmtH(extra)} h navíc × ${route.rate_h} € = ${eur(add)} (skutečně ${fmtH(Math.round(escortH * 100) / 100)} h)`,
+    }
+  }
   if (!route) return null
   const crew = [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).length
   const hours = t.hours_manual ?? hoursTotal

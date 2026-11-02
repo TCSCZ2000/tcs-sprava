@@ -284,3 +284,4 @@ td.placeholder .cell { color: #8a4b08; font-style: italic; background: var(--soo
 .missing li { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
 .mroute { font-weight: 600; }
 .small { font-size: .8rem; }
+.manualprice { color: #9a5b00; font-weight: 600; white-space: nowrap; }

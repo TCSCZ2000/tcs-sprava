@@ -40,6 +40,7 @@ export interface Trip {
   dep_home: string | null; arr_pup: string | null; dep_pup: string | null; arr_dop: string | null; dep_dop: string | null; arr_home: string | null
   km_pup: number | null; km_dop: number | null; km_total: number | null; toll: number | null; hours_manual: number | null; report_note: string | null
   route_price_id: string | null
+  price_manual: number | null
 }
 export interface Customer { name: string; sort: number; active: boolean }
 export interface Route {
