@@ -17,21 +17,21 @@ const fmtH = (h: number) => h.toString().replace('.', ',')
 
 // Cena cesty jako v Přehledu 10_26.
 // Ruční cena přebije vše. Pevná cena platí pro X h mezi Pup a Dop; skutečné hodiny navíc
-// (odjezd Pup → příjezd Dop) se zaokrouhlí nahoru na půlhodiny a připočtou × sazba/h.
+// (request čas cesty → odjezd z Dop) se zaokrouhlí nahoru na čtvrthodiny a připočtou × sazba/h.
 // Jinak: hodiny každého z posádky × sazba/h + km × sazba/km + mýto.
-export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, escortH: number | null) {
+export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null) {
   if (t.price_manual != null) return { price: Number(t.price_manual), how: 'Ruční cena (domluva se zákazníkem)' }
   const fixed = t.route_price_id ? prices.find(p => p.id === t.route_price_id) : undefined
   if (fixed) {
     const base = Number(fixed.price)
     if (fixed.pup_dop_h == null || !route) return { price: base, how: `Pevná cena ${fixed.label}` }
-    if (escortH == null) return { price: base, how: `Pevná cena ${fixed.label} (hodiny navíc se dopočtou, až bude odjezd Pup a příjezd Dop)` }
-    const extra = Math.max(0, Math.ceil((escortH - Number(fixed.pup_dop_h)) * 2 - 1e-9) / 2)
-    if (extra === 0) return { price: base, how: `Pevná cena ${fixed.label}, skutečně ${fmtH(Math.round(escortH * 100) / 100)} h – nic navíc` }
+    if (fixedH == null) return { price: base, how: `Pevná cena ${fixed.label} (hodiny navíc se dopočtou, až bude vyplněný odjezd z Dop)` }
+    const extra = Math.max(0, Math.ceil((fixedH - Number(fixed.pup_dop_h)) * 4 - 1e-9) / 4)
+    if (extra === 0) return { price: base, how: `Pevná cena ${fixed.label}, od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h – nic navíc` }
     const add = extra * Number(route.rate_h)
     return {
       price: Math.round((base + add) * 100) / 100,
-      how: `Pevná cena ${fixed.label} ${eur(base)} + ${fmtH(extra)} h navíc × ${route.rate_h} € = ${eur(add)} (skutečně ${fmtH(Math.round(escortH * 100) / 100)} h)`,
+      how: `Pevná cena ${fixed.label} ${eur(base)} + ${fmtH(extra)} h navíc × ${route.rate_h} € = ${eur(add)} (od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h)`,
     }
   }
   if (!route) return null

@@ -171,8 +171,10 @@ export default function Reports() {
                     {seePrice && (() => {
                       const route = routeBy.get(`${t.pup_id}|${t.dop_id}`)
                       const opts = route ? rprices.filter(p => p.route_id === route.id) : []
-                      const pr = tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, escort ? Number(escort.replace(',', '.')) : null)
-                      const auto = tripPrice({ ...t, price_manual: null }, route, rprices, total ? Number(total.replace(',', '.')) : null, escort ? Number(escort.replace(',', '.')) : null)
+                      const rq = t.trip_time ? hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) : null
+                      const reqH = rq ? Number(rq.replace(',', '.')) : null
+                      const pr = tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, reqH)
+                      const auto = tripPrice({ ...t, price_manual: null }, route, rprices, total ? Number(total.replace(',', '.')) : null, reqH)
                       return <>
                         <td>
                           {t.price_manual != null
