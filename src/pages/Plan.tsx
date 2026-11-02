@@ -50,6 +50,20 @@ export default function Plan() {
   }, [cars, carCategories])
   const statusBy = useMemo(() => new Map(statuses.map(s => [s.name, s])), [statuses])
   const routeTimeBy = useMemo(() => new Map(routeTimes.map(r => [`${r.pup_id}|${r.dop_id}`, r])), [routeTimes])
+  // Náhrada, když celá trasa chybí: HO→PUP z jiné trasy ze stejného Pup, DOP→HO z jiné trasy na stejný Dop
+  // (jen trasy ze základny CZ; při víc hodnotách ta nejčastější)
+  const [pupH, dopH] = useMemo(() => {
+    const pick = (key: 'pup_id' | 'dop_id', h: 'ho_pup_h' | 'dop_ho_h') => {
+      const cnt = new Map<string, Map<number, number>>()
+      for (const r of routeTimes) {
+        if (r.home_base !== 'CZ' || r[h] == null) continue
+        const m = cnt.get(r[key]) ?? new Map<number, number>(); cnt.set(r[key], m)
+        m.set(Number(r[h]), (m.get(Number(r[h])) ?? 0) + 1)
+      }
+      return new Map([...cnt].map(([id, m]) => [id, [...m].sort((a, b) => b[1] - a[1])[0][0]]))
+    }
+    return [pick('pup_id', 'ho_pup_h'), pick('dop_id', 'dop_ho_h')]
+  }, [routeTimes])
 
   // Doby jízdy z kalkulací tras (HO→PUP, DOP→HO) – přes funkci, aby je viděl i ten, kdo nevidí ceny
   useEffect(() => {
@@ -299,14 +313,18 @@ export default function Plan() {
                 const abroad = rt && rt.home_base !== 'CZ' ? rt.home_base : null
                 const reqIso = t.trip_time ? `${t.trip_date}T${t.trip_time.slice(0, 5)}:00` : null
                 // Start: ručně > z trasy (HO→PUP) > doba jízdy v Místech
-                const startAuto = rt?.ho_pup_h != null && reqIso ? fmtRel(addHoursIso(reqIso, -Number(rt.ho_pup_h), 5), t.trip_date)
+                const hoPup = rt?.ho_pup_h != null ? Number(rt.ho_pup_h) : !rt && t.pup_id ? pupH.get(t.pup_id) : undefined
+                const hoPupFrom = rt?.ho_pup_h != null ? `z trasy${abroad ? ` (základna ${abroad})` : ''}` : 'z jiné trasy ze stejného Pup'
+                const startAuto = hoPup != null && reqIso ? fmtRel(addHoursIso(reqIso, -hoPup, 5), t.trip_date)
                   : computeStart(t.trip_date, t.trip_time, pup?.travel_time ?? null, pup?.ferry ?? false)
                 const start = t.start_at ? fmtRel(t.start_at, t.trip_date) : startAuto
-                const startHow = t.start_at ? 'Zadáno ručně' : rt?.ho_pup_h != null ? `Z trasy: HO→PUP ${rt.ho_pup_h} h${abroad ? ` (základna ${abroad})` : ''}` : pup?.travel_time ? 'Z doby jízdy v Místech (trasa nemá HO→PUP)' : 'Chybí trasa i doba jízdy'
-                // Home: ručně > konec Dop + DOP→HO z trasy
-                const homeAuto = t.dep_dop && rt?.dop_ho_h != null ? fmtRel(addHoursIso(t.dep_dop, Number(rt.dop_ho_h)), t.trip_date) : ''
+                const startHow = t.start_at ? 'Zadáno ručně' : hoPup != null ? `HO→PUP ${hoPup} h ${hoPupFrom}` : pup?.travel_time ? 'Z doby jízdy v Místech (žádná trasa z tohoto Pup nemá HO→PUP)' : 'Chybí trasa i doba jízdy'
+                // Home: ručně > konec Dop + DOP→HO z trasy (nebo z jiné trasy na stejný Dop)
+                const dopHo = rt?.dop_ho_h != null ? Number(rt.dop_ho_h) : !rt && t.dop_id ? dopH.get(t.dop_id) : undefined
+                const dopHoFrom = rt?.dop_ho_h != null ? `z trasy${abroad ? ` (základna ${abroad})` : ''}` : 'z jiné trasy na stejný Dop'
+                const homeAuto = t.dep_dop && dopHo != null ? fmtRel(addHoursIso(t.dep_dop, dopHo), t.trip_date) : ''
                 const home = t.home_at ? fmtRel(t.home_at, t.trip_date) : homeAuto
-                const homeHow = t.home_at ? 'Zadáno ručně' : homeAuto ? `Konec Dop + DOP→HO ${rt!.dop_ho_h} h z trasy${abroad ? ` (základna ${abroad})` : ''}` : !t.dep_dop ? 'Vyplňte Konec Dop' : 'Trasa nemá DOP→HO'
+                const homeHow = t.home_at ? 'Zadáno ručně' : homeAuto ? `Konec Dop + DOP→HO ${dopHo} h ${dopHoFrom}` : !t.dep_dop ? 'Vyplňte Konec Dop' : 'Žádná trasa na tento Dop nemá DOP→HO'
                 const saveDT = (key: 'start_at' | 'dep_dop' | 'home_at', v: string, base: string) => {
                   const r = parseDT(v, base, key !== 'start_at')
                   if (r === undefined) return toast('Čas zapište jako 9:45 nebo 3.11. 9:45.', 'err')
