@@ -131,9 +131,14 @@ export default function Routes() {
   }
 
   const rows = useMemo(() => {
-    const s = q.trim().toLowerCase()
+    // každé slovo zvlášť („frankfurt rudna“ najde KN Frankfurt → Schenker Rudná), bez diakritiky, i v městech
+    const words = fold(q).split(/\s+/).filter(Boolean)
     return routes
-      .filter(r => !s || `${name(r.pup_id)} ${name(r.dop_id)}`.toLowerCase().includes(s))
+      .filter(r => {
+        if (!words.length) return true
+        const hay = fold(`${name(r.pup_id)} ${city(r.pup_id)} ${name(r.dop_id)} ${city(r.dop_id)}`)
+        return words.every(w => hay.includes(w))
+      })
       .sort((a, b) => (name(a.pup_id) + name(a.dop_id)).localeCompare(name(b.pup_id) + name(b.dop_id)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, q, places])
@@ -149,7 +154,7 @@ export default function Routes() {
       <div className="toolbar">
         <h1>Trasy a ceny</h1>
         <span className="count">{routes.length} tras</span>
-        <input className="search" placeholder="Hledat místo…" value={q} onChange={e => setQ(e.target.value)} />
+        <input className="search" placeholder="Hledat (třeba frankfurt rudna)" value={q} onChange={e => setQ(e.target.value)} />
       </div>
       <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
 
@@ -239,3 +244,6 @@ export default function Routes() {
     </section>
   )
 }
+
+// bez diakritiky a malými písmeny, aby „rudna“ našlo Rudná
+function fold(v: string) { return v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') }
