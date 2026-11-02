@@ -49,15 +49,16 @@ export default function Plan() {
     return m
   }, [cars, carCategories])
   const statusBy = useMemo(() => new Map(statuses.map(s => [s.name, s])), [statuses])
-  const routeTimeBy = useMemo(() => new Map(routeTimes.map(r => [`${r.pup_id}|${r.dop_id}`, r])), [routeTimes])
+  const routeTimeBy = useMemo(() => new Map(routeTimes.map(r => [`${r.pup_id}|${r.dop_id}|${r.home_base}`, r])), [routeTimes])
   // Náhrada, když celá trasa chybí: HO→PUP z jiné trasy ze stejného Pup, DOP→HO z jiné trasy na stejný Dop
-  // (jen trasy ze základny CZ; při víc hodnotách ta nejčastější)
+  // (jen trasy se stejnou základnou CZ/NL; při víc hodnotách ta nejčastější)
   const [pupH, dopH] = useMemo(() => {
     const pick = (key: 'pup_id' | 'dop_id', h: 'ho_pup_h' | 'dop_ho_h') => {
       const cnt = new Map<string, Map<number, number>>()
       for (const r of routeTimes) {
-        if (r.home_base !== 'CZ' || r[h] == null) continue
-        const m = cnt.get(r[key]) ?? new Map<number, number>(); cnt.set(r[key], m)
+        if (r[h] == null) continue
+        const id = `${r.home_base}|${r[key]}`
+        const m = cnt.get(id) ?? new Map<number, number>(); cnt.set(id, m)
         m.set(Number(r[h]), (m.get(Number(r[h])) ?? 0) + 1)
       }
       return new Map([...cnt].map(([id, m]) => [id, [...m].sort((a, b) => b[1] - a[1])[0][0]]))
@@ -287,20 +288,20 @@ export default function Plan() {
             <tr>
               <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th>
               <th>Guard 1</th><th>Guard 2</th><th>Guard 3</th><th>Auto</th><th>Odkud</th>
-              <th className="w-ref">Ref. TCS</th><th className="w-dt" title="Čas − HO→PUP z trasy (nebo doba jízdy v Místech). Kliknutím přepíšete ručně.">Start</th><th className="w-dt" title="Kdy posádka skončila na Dop (= Odjezd Dop v reportu). Pište 9:45 nebo 3.11. 9:45.">Konec Dop</th><th className="w-dt" title="Konec Dop + DOP→HO z trasy, nahoru na čtvrthodiny. Kliknutím přepíšete ručně.">Home</th><th>Poznámka</th><th>Změna</th>
+              <th className="w-ref">Ref. TCS</th><th className="w-nl" title="NL–NL: posádka vyjíždí z NL a vrací se do NL">NL</th><th className="w-dt" title="Čas − HO→PUP z trasy (nebo doba jízdy v Místech). Kliknutím přepíšete ručně.">Start</th><th className="w-dt" title="Kdy posádka skončila na Dop (= Odjezd Dop v reportu). Pište 9:45 nebo 3.11. 9:45.">Konec Dop</th><th className="w-dt" title="Konec Dop + DOP→HO z trasy, nahoru na čtvrthodiny. Kliknutím přepíšete ručně.">Home</th><th>Poznámka</th><th>Změna</th>
               {canCreate && <th className="w-x" aria-label="Akce" />}
             </tr>
           </thead>
           {days.map(([date, rows]) => (
             <tbody key={date}>
               {view === 'customers' && <tr className="dayrow">
-                <td colSpan={canCreate ? 18 : 17}>
+                <td colSpan={canCreate ? 19 : 18}>
                   <span className="daylabel">{date === NO_CUSTOMER ? 'Bez zákazníka' : date}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
               </tr>}
               {view === 'days' && <tr className="dayrow">
-                <td colSpan={canCreate ? 18 : 17}>
+                <td colSpan={canCreate ? 19 : 18}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
@@ -309,19 +310,19 @@ export default function Plan() {
                 const st = statusBy.get(t.status ?? '')
                 const pup = placeBy.get(t.pup_id ?? '')
                 const car = carBy.get(t.car_id ?? '')
-                const rt = routeTimeBy.get(`${t.pup_id}|${t.dop_id}`)
-                const abroad = rt && rt.home_base !== 'CZ' ? rt.home_base : null
+                const rt = routeTimeBy.get(`${t.pup_id}|${t.dop_id}|${t.home_base}`)
+                const nl = t.home_base === 'NL'
                 const reqIso = t.trip_time ? `${t.trip_date}T${t.trip_time.slice(0, 5)}:00` : null
                 // Start: ručně > z trasy (HO→PUP) > doba jízdy v Místech
-                const hoPup = rt?.ho_pup_h != null ? Number(rt.ho_pup_h) : !rt && t.pup_id ? pupH.get(t.pup_id) : undefined
-                const hoPupFrom = rt?.ho_pup_h != null ? `z trasy${abroad ? ` (základna ${abroad})` : ''}` : 'z jiné trasy ze stejného Pup'
+                const hoPup = rt?.ho_pup_h != null ? Number(rt.ho_pup_h) : !rt && t.pup_id ? pupH.get(`${t.home_base}|${t.pup_id}`) : undefined
+                const hoPupFrom = (rt?.ho_pup_h != null ? 'z trasy' : 'z jiné trasy ze stejného Pup') + (nl ? ' (NL–NL)' : '')
                 const startAuto = hoPup != null && reqIso ? fmtRel(addHoursIso(reqIso, -hoPup, 5), t.trip_date)
                   : computeStart(t.trip_date, t.trip_time, pup?.travel_time ?? null, pup?.ferry ?? false)
                 const start = t.start_at ? fmtRel(t.start_at, t.trip_date) : startAuto
                 const startHow = t.start_at ? 'Zadáno ručně' : hoPup != null ? `HO→PUP ${hoPup} h ${hoPupFrom}` : pup?.travel_time ? 'Z doby jízdy v Místech (žádná trasa z tohoto Pup nemá HO→PUP)' : 'Chybí trasa i doba jízdy'
                 // Home: ručně > konec Dop + DOP→HO z trasy (nebo z jiné trasy na stejný Dop)
-                const dopHo = rt?.dop_ho_h != null ? Number(rt.dop_ho_h) : !rt && t.dop_id ? dopH.get(t.dop_id) : undefined
-                const dopHoFrom = rt?.dop_ho_h != null ? `z trasy${abroad ? ` (základna ${abroad})` : ''}` : 'z jiné trasy na stejný Dop'
+                const dopHo = rt?.dop_ho_h != null ? Number(rt.dop_ho_h) : !rt && t.dop_id ? dopH.get(`${t.home_base}|${t.dop_id}`) : undefined
+                const dopHoFrom = (rt?.dop_ho_h != null ? 'z trasy' : 'z jiné trasy na stejný Dop') + (nl ? ' (NL–NL)' : '')
                 const homeAuto = t.dep_dop && dopHo != null ? fmtRel(addHoursIso(t.dep_dop, dopHo), t.trip_date) : ''
                 const home = t.home_at ? fmtRel(t.home_at, t.trip_date) : homeAuto
                 const homeHow = t.home_at ? 'Zadáno ručně' : homeAuto ? `Konec Dop + DOP→HO ${dopHo} h ${dopHoFrom}` : !t.dep_dop ? 'Vyplňte Konec Dop' : 'Žádná trasa na tento Dop nemá DOP→HO'
@@ -413,10 +414,13 @@ export default function Plan() {
                     </td>
                     <td><Text disabled={!canStatus} value={t.ref_tcs ?? ''} placeholder="A·····" mono
                       onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
-                    <td className={'start' + (start === 'ferry' ? ' ferry' : '') + (t.start_at ? ' manual' : '') + (abroad ? ' abroad' : '')} title={startHow}>
+                    <td className="nlcell">
+                      <input type="checkbox" checked={nl} disabled={!canRoute} title="NL–NL: posádka vyjíždí z NL a vrací se do NL. Start a Home se pak berou z NL variant tras."
+                        onChange={e => save(t, { home_base: e.target.checked ? 'NL' : 'CZ' })} />
+                    </td>
+                    <td className={'start' + (start === 'ferry' ? ' ferry' : '') + (t.start_at ? ' manual' : '') + (nl ? ' abroad' : '')} title={startHow}>
                       <Text disabled={!canRoute} value={start} time mono placeholder="–"
                         onSave={v => v.trim() ? saveDT('start_at', v, reqIso ?? `${t.trip_date}T00:00:00`) : save(t, { start_at: null })} />
-                      {abroad && <span className="basetag" title={`Trasa je počítaná ze základny ${abroad}`}>{abroad}</span>}
                     </td>
                     <td className="start" title={t.dep_dop ? fmtDT(t.dep_dop) : undefined}>
                       <Text disabled={!canRoute} value={fmtRel(t.dep_dop, t.trip_date)} time mono placeholder="–"

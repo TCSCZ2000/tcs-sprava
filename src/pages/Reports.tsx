@@ -30,7 +30,7 @@ export default function Reports() {
     Promise.all([supabase.from('routes').select('*'), supabase.from('route_prices').select('*').order('sort')])
       .then(([r, p]) => { setRoutes((r.data as Route[]) ?? []); setRprices((p.data as RoutePrice[]) ?? []) })
   }, [seePrice])
-  const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}`, r])), [routes])
+  const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}|${r.home_base}`, r])), [routes])
   const [trips, setTrips] = useState<Trip[]>([])
   const [showDone, setShowDone] = useState(false)
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
@@ -169,7 +169,7 @@ export default function Reports() {
                     <td><Text disabled={!ed} value={t.hours_manual?.toString().replace('.', ',') ?? ''} time mono
                       onSave={v => { const n = num(v); if (n === undefined) return toast('Hodiny pište jako číslo, třeba 14,5.', 'err'); save(t, { hours_manual: n }) }} /></td>
                     {seePrice && (() => {
-                      const route = routeBy.get(`${t.pup_id}|${t.dop_id}`)
+                      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.home_base}`)
                       const opts = route ? rprices.filter(p => p.route_id === route.id) : []
                       const rq = t.trip_time ? hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) : null
                       const reqH = rq ? Number(rq.replace(',', '.')) : null
@@ -184,7 +184,7 @@ export default function Reports() {
                                 <option value="">sazby ({route.rate_h} €/h, {route.rate_km} €/km)</option>
                                 {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {eur(Number(p.price))}</option>)}
                               </select>
-                            : <span className="ro missingtxt" title="V Trasách a cenách tahle trasa není">chybí trasa</span>}
+                            : <span className="ro missingtxt" title={`V Trasách a cenách tahle trasa není${t.home_base === 'NL' ? ' (varianta NL–NL)' : ''}`}>chybí trasa{t.home_base === 'NL' ? ' NL' : ''}</span>}
                         </td>
                         <td className="num" title={pr?.how}>
                           <Text disabled={!ed} value={pr ? eur(pr.price) : ''} time mono placeholder={ed ? 'zadat' : ''}

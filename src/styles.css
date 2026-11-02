@@ -286,7 +286,10 @@ td.placeholder .cell { color: #8a4b08; font-style: italic; background: var(--soo
 .small { font-size: .8rem; }
 .manualprice { color: #9a5b00; font-weight: 600; white-space: nowrap; }
 td.start.manual { color: #9a5b00; }
-td.start .basetag { font-size: .7rem; font-weight: 700; color: #9a5b00; border: 1px solid #e0b66a; border-radius: 4px; padding: 0 .25rem; margin-left: .2rem; vertical-align: 1px; }
-td.abroadcell { color: #9a5b00; font-weight: 700; }
 .w-dt { width: 7rem; }
 td.start .cell.time { width: 6.6rem; min-width: 6rem; }
+.nlcell { text-align: center; padding: 0 .3rem; }
+.nlcell input { accent-color: #9a5b00; }
+.w-nl { width: 2.2rem; }
+.nlcheck { display: flex; align-items: center; gap: .3rem; font-weight: 600; color: #9a5b00; }
+.nltag { font-size: .7rem; font-weight: 700; color: #9a5b00; border: 1px solid #e0b66a; border-radius: 4px; padding: 0 .25rem; margin-left: .35rem; vertical-align: 1px; }

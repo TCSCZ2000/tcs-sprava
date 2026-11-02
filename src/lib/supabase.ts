@@ -43,6 +43,7 @@ export interface Trip {
   price_manual: number | null
   start_at: string | null
   home_at: string | null
+  home_base: 'CZ' | 'NL'
 }
 export interface Customer { name: string; sort: number; active: boolean }
 export interface Route {
