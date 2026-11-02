@@ -22,7 +22,8 @@ export default function Plan() {
   const canRoute = level('planning_route') === 'write'
   const canAddPlace = level('places') === 'write'
   const [trips, setTrips] = useState<Trip[]>([])
-  const [from, setFrom] = useState(todayIso(-1))
+  const [from, setFrom] = useState('')
+  const [hist, setHist] = useState(false) // Historie = vyřízené cesty (Finished s hotovým reportem)
   const [to, setTo] = useState('')
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
@@ -49,16 +50,21 @@ export default function Plan() {
   const statusBy = useMemo(() => new Map(statuses.map(s => [s.name, s])), [statuses])
 
   useEffect(() => {
-    // Načte vybrané období a navíc všechny rozjeté cesty (jako řádky, které v Excelu ještě nejsou smazané)
-    supabase.from('trips').select('*')
-      .or(`trip_date.gte.${from},status.is.null,status.not.in.(Finished,Canceled)`)
-      .order('trip_date').order('trip_time', { nullsFirst: true })
+    // Plán: všechny cesty bez ohledu na datum, dokud nejsou vyřízené (Finished s hotovým reportem).
+    // Historie: jen vyřízené. Od/Do omezí obojí.
+    let qb = supabase.from('trips').select('*')
+    qb = hist ? qb.eq('status', 'Finished').not('report_no', 'is', null) : qb.or('status.neq.Finished,status.is.null,report_no.is.null')
+    if (from) qb = qb.gte('trip_date', from)
+    if (to) qb = qb.lte('trip_date', to)
+    qb.order('trip_date').order('trip_time', { nullsFirst: true })
       .then(({ data, error }) => {
       if (error) toast(explain(error), 'err')
       setTrips((data as Trip[]) ?? [])
       setLoaded(true)
     })
-  }, [from, toast])
+  }, [from, to, hist, toast])
+
+  const resolved = (t: Trip) => t.status === 'Finished' && t.report_no != null
 
   // Živé změny od ostatních
   useEffect(() => {
@@ -143,8 +149,8 @@ export default function Plan() {
   const visible = useMemo(() => {
     const s = q.trim().toLowerCase()
     return trips
-      .filter(t => t.status !== REPORT)
-      .filter(t => t.trip_date >= from && (!to || t.trip_date <= to))
+      .filter(t => t.status !== REPORT && resolved(t) === hist)
+      .filter(t => (!from || t.trip_date >= from) && (!to || t.trip_date <= to))
       .filter(t => !hidden.has(t.status ?? ''))
       .filter(t => !hiddenCust.has(t.customer ?? NO_CUSTOMER))
       .filter(t => !carFilter || t.car_id === carFilter)
@@ -158,7 +164,7 @@ export default function Plan() {
         return hay.includes(s)
       })
       .sort((a, b) => (a.trip_date + (a.trip_time ?? '')).localeCompare(b.trip_date + (b.trip_time ?? '')))
-  }, [trips, hidden, hiddenCust, q, placeBy, personBy, carBy, from, to, carFilter])
+  }, [trips, hidden, hiddenCust, q, placeBy, personBy, carBy, from, to, carFilter, hist])
 
   const days = useMemo(() => {
     if (view === 'list') return [['all', visible] as [string, Trip[]]]
@@ -196,6 +202,10 @@ export default function Plan() {
       <div className="toolbar">
         <label className="field">Od<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
         <label className="field">Do<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
+        <div className="seg" role="group" aria-label="Plán nebo historie">
+          <button className={hist ? '' : 'on'} aria-pressed={!hist} onClick={() => setHist(false)} title="Všechny cesty, které ještě nemají hotový report">Plán</button>
+          <button className={hist ? 'on' : ''} aria-pressed={hist} onClick={() => setHist(true)} title="Vyřízené cesty: Finished s hotovým reportem">Historie</button>
+        </div>
         <input className="search" placeholder="Hledat místo, jméno, SPZ, Ref…" value={q} onChange={e => setQ(e.target.value)} />
         <div className="statusfilter">
           {statuses.map(s => (
@@ -222,7 +232,7 @@ export default function Plan() {
           <button className={'fs-s' + (size === 's' ? ' on' : '')} aria-pressed={size === 's'} onClick={() => setSize('s')} title="Menší písmo">A</button>
           <button className={'fs-xs' + (size === 'xs' ? ' on' : '')} aria-pressed={size === 'xs'} onClick={() => setSize('xs')} title="Nejmenší písmo">A</button>
         </div>
-        {canCreate && <button className="primary" onClick={addTrip}>Nová cesta</button>}
+        {canCreate && !hist && <button className="primary" onClick={addTrip}>Nová cesta</button>}
       </div>
 
       <datalist id="dl-status">{allStatuses.map(x => <option key={x.name} value={x.name} />)}</datalist>
@@ -380,7 +390,7 @@ export default function Plan() {
           ))}
         </table>
         {loaded && days.length === 0 && (
-          <p className="empty">V tomhle období nejsou žádné cesty{hidden.size || hiddenCust.size ? ' s vybraným filtrem' : ''}.{canCreate && ' Přidejte první tlačítkem Nová cesta.'}</p>
+          <p className="empty">{hist ? 'V historii zatím nic není. Cesta se sem přesune, až jí v Reportech dáte Hotovo.' : <>Žádné cesty{hidden.size || hiddenCust.size || from || to ? ' s vybraným filtrem' : ''}.{canCreate && ' Přidejte první tlačítkem Nová cesta.'}</>}</p>
         )}
       </div>
 

@@ -54,7 +54,7 @@ main { padding: 16px; }
 .field { display: flex; flex-direction: column; font-size: .8rem; color: var(--ink-2); gap: .15rem; }
 .field input, .field select { font-size: .95rem; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: .35rem .5rem; background: var(--surface); }
 .search { border: 1px solid var(--line); border-radius: 6px; padding: .4rem .6rem; min-width: 220px; background: var(--surface); flex: 0 1 300px; }
-.statusfilter { display: flex; flex-wrap: wrap; gap: .3rem; flex: 1; }
+.statusfilter { display: flex; flex-wrap: wrap; gap: .3rem; flex: 1 1 420px; }
 .chip { --c: #ccc; border: 1px solid color-mix(in srgb, var(--c) 70%, #000 0%); background: color-mix(in srgb, var(--c) 30%, #fff); padding: .2rem .55rem; border-radius: 999px; font-size: .85rem; }
 .chip::before { content: ''; display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; background: var(--c); margin-right: .35rem; vertical-align: 0; }
 .chip.off { background: var(--surface); color: var(--ink-2); border-color: var(--line); text-decoration: line-through; }
