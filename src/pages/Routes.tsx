@@ -151,7 +151,7 @@ export default function Routes() {
         <span className="count">{routes.length} tras</span>
         <input className="search" placeholder="Hledat místo…" value={q} onChange={e => setQ(e.target.value)} />
       </div>
-      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete.</p>
+      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
 
       {canEdit && (
         <div className="newroute">

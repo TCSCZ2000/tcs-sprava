@@ -17,7 +17,7 @@ const fmtH = (h: number) => h.toString().replace('.', ',')
 
 // Cena cesty jako v Přehledu 10_26.
 // Ruční cena přebije vše. Pevná cena platí pro X h mezi Pup a Dop; skutečné hodiny navíc
-// (request čas cesty → odjezd z Dop) se zaokrouhlí nahoru na čtvrthodiny a připočtou × sazba/h.
+// (request čas cesty → odjezd z Dop) se zaokrouhlí nahoru na čtvrthodiny a připočtou × počet lidí × sazba/h (sazba je na 1 člena posádky).
 // Jinak: hodiny každého z posádky × sazba/h + km × sazba/km + mýto.
 export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null) {
   if (t.price_manual != null) return { price: Number(t.price_manual), how: 'Ruční cena (domluva se zákazníkem)' }
@@ -28,10 +28,12 @@ export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[
     if (fixedH == null) return { price: base, how: `Pevná cena ${fixed.label} (hodiny navíc se dopočtou, až bude vyplněný odjezd z Dop)` }
     const extra = Math.max(0, Math.ceil((fixedH - Number(fixed.pup_dop_h)) * 4 - 1e-9) / 4)
     if (extra === 0) return { price: base, how: `Pevná cena ${fixed.label}, od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h – nic navíc` }
-    const add = extra * Number(route.rate_h)
+    const crew = [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).length
+    if (crew === 0) return { price: base, how: `Pevná cena ${fixed.label} + ${fmtH(extra)} h navíc – chybí posádka, hodiny navíc nejde spočítat` }
+    const add = crew * extra * Number(route.rate_h)
     return {
       price: Math.round((base + add) * 100) / 100,
-      how: `Pevná cena ${fixed.label} ${eur(base)} + ${fmtH(extra)} h navíc × ${route.rate_h} € = ${eur(add)} (od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h)`,
+      how: `Pevná cena ${fixed.label} ${eur(base)} + ${crew} × ${fmtH(extra)} h navíc × ${route.rate_h} € = ${eur(add)} (od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h)`,
     }
   }
   if (!route) return null
