@@ -268,3 +268,19 @@ select.gps.RexGPS { color: #2a3c9b; font-weight: 600; }
 /* Auto z půjčovny bez SPZ */
 td.placeholder .cell { color: #8a4b08; font-style: italic; background: var(--soon); }
 .orderrental { border: 1px solid var(--line); border-radius: 6px; padding: .4rem .5rem; background: var(--surface); }
+
+/* Trasy a ceny */
+.routes table.grid { min-width: 1900px; }
+.routegrid th.legh { text-align: center; border-left: 1px solid var(--line); }
+.routegrid td.sum { font-weight: 600; background: var(--paper); }
+.routegrid .cell.time { min-width: 3.4rem; width: 3.8rem; }
+.routegrid td.prices { min-width: 15rem; }
+.pricechip { display: inline-flex; align-items: center; background: var(--soon); border-radius: 4px; margin: .1rem .25rem .1rem 0; padding: 0 .15rem; }
+.pricechip .cell.time { width: 3.6rem; min-width: 3rem; }
+.newroute { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem; margin-bottom: .75rem; }
+.newroute .search { min-width: 220px; flex: 0 1 260px; }
+.missing { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid #d97706; border-radius: 8px; padding: .5rem .8rem; margin-bottom: .75rem; }
+.missing ul { margin: .4rem 0 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+.missing li { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.mroute { font-weight: 600; }
+.small { font-size: .8rem; }

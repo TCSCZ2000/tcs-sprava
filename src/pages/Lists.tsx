@@ -74,13 +74,14 @@ export function Places() {
   }
   const cols: Col<Place>[] = [
     { key: 'name', label: 'Místo', wide: true, get: r => r.name, save: (r, v) => v && savePlace(r, { name: v }) },
+    { key: 'city', label: 'Město', get: r => r.city ?? '', save: (r, v) => savePlace(r, { city: v.trim() || null }) },
     { key: 'tt', label: 'Doba jízdy z TCS', get: r => minutesToHM(intervalToMinutes(r.travel_time)),
       save: (r, v) => { try { savePlace(r, { travel_time: parseDuration(v) }) } catch (e) { toast((e as Error).message, 'err') } } },
     { key: 'ferry', label: 'Trajekt', type: 'check', get: r => String(r.ferry), save: (r, v) => savePlace(r, { ferry: v === 'true' }) },
   ]
   return (
     <ListTable title="Místa" rows={places} cols={cols} canEdit={canEdit} onAdd={add} addLabel="Přidat místo"
-      search={r => r.name}
-      intro="Start v Planningu = čas nakládky mínus doba jízdy k místu nakládky. Doba platí pro Prahu i Příbram. U trajektu se místo času ukáže ferry." />
+      search={r => `${r.name} ${r.city ?? ''}`}
+      intro="Start v Planningu = čas nakládky mínus doba jízdy k místu nakládky. Doba platí pro Prahu i Příbram. U trajektu se místo času ukáže ferry. Město slouží k návrhům kopií tras (KN Frankfurt a CHI Frankfurt jsou obě Frankfurt)." />
   )
 }

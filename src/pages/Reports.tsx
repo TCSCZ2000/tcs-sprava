@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase, type Trip } from '../lib/supabase'
+import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabase'
+import { eur, tripPrice } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { todayIso } from '../lib/format'
 import { Text } from './Plan'
@@ -21,6 +22,15 @@ const TIMES: { key: TimeKey; label: string }[] = [
 export default function Reports() {
   const { level, people, cars, places, customers, statuses, toast } = useApp()
   const canEdit = level('reports') === 'write'
+  const seePrice = level('routes') !== 'none'
+  const [routes, setRoutes] = useState<Route[]>([])
+  const [rprices, setRprices] = useState<RoutePrice[]>([])
+  useEffect(() => {
+    if (!seePrice) return
+    Promise.all([supabase.from('routes').select('*'), supabase.from('route_prices').select('*').order('sort')])
+      .then(([r, p]) => { setRoutes((r.data as Route[]) ?? []); setRprices((p.data as RoutePrice[]) ?? []) })
+  }, [seePrice])
+  const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}`, r])), [routes])
   const [trips, setTrips] = useState<Trip[]>([])
   const [showDone, setShowDone] = useState(false)
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
@@ -82,7 +92,7 @@ export default function Reports() {
   }, [trips, customers, hiddenCust])
 
   const waiting = trips.filter(t => t.status === REPORT).length
-  const COLS = 23
+  const COLS = seePrice ? 25 : 23
 
   return (
     <section className="plan reports size-s">
@@ -108,7 +118,7 @@ export default function Reports() {
               <th>Datum</th><th>Zákazník</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th>Posádka</th><th>Auto</th>
               {TIMES.map(x => <th key={x.key}>{x.label}</th>)}
               <th>Km Pup</th><th>Km Dop</th><th>Km celkem</th><th>Mýto €</th>
-              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th><th>Poznámka</th><th />
+              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th>{seePrice && <><th>Cena podle</th><th>Cena € bez DPH</th></>}<th>Poznámka</th><th />
             </tr>
           </thead>
           {groups.map(([cust, rows]) => (
@@ -158,6 +168,22 @@ export default function Reports() {
                     <td className="ro num">{escort ?? ''}</td>
                     <td><Text disabled={!ed} value={t.hours_manual?.toString().replace('.', ',') ?? ''} time mono
                       onSave={v => { const n = num(v); if (n === undefined) return toast('Hodiny pište jako číslo, třeba 14,5.', 'err'); save(t, { hours_manual: n }) }} /></td>
+                    {seePrice && (() => {
+                      const route = routeBy.get(`${t.pup_id}|${t.dop_id}`)
+                      const opts = route ? rprices.filter(p => p.route_id === route.id) : []
+                      const pr = tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null)
+                      return <>
+                        <td>
+                          {route
+                            ? <select disabled={!ed} value={t.route_price_id ?? ''} onChange={e => save(t, { route_price_id: e.target.value || null })}>
+                                <option value="">sazby ({route.rate_h} €/h, {route.rate_km} €/km)</option>
+                                {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {eur(Number(p.price))}</option>)}
+                              </select>
+                            : <span className="ro missingtxt" title="V Trasách a cenách tahle trasa není">chybí trasa</span>}
+                        </td>
+                        <td className="ro num" title={pr?.how}>{pr ? eur(pr.price) : ''}</td>
+                      </>
+                    })()}
                     <td><Text disabled={!ed} value={t.report_note ?? ''} wide onSave={v => save(t, { report_note: v || null })} /></td>
                     <td className="actions nowrap">
                       {canEdit && !done && (
