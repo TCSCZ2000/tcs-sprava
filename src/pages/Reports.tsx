@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabase'
 import { eur, tripPrice } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
-import { todayIso } from '../lib/format'
+import { fmtDT, parseDT, todayIso } from '../lib/format'
 import { Text } from './Plan'
 
 const REPORT = 'Report'
@@ -226,42 +226,10 @@ export default function Reports() {
 
 function dm(iso: string) { const [, m, d] = iso.split('-').map(Number); return `${d}. ${m}.` }
 
-// "2026-11-02T03:30:00" → "2. 11. 3:30"
-function fmtDT(v: string | null) {
-  if (!v) return ''
-  const [d, t] = v.replace(' ', 'T').split('T')
-  const [, mo, da] = d.split('-').map(Number)
-  return `${da}. ${mo}. ${t.slice(0, 5)}`
-}
-
 // Poslední vyplněný čas před tímto polem (od něj se dopočítá den)
 function prevFilled(t: Trip, i: number): string {
   for (let k = i - 1; k >= 0; k--) { const v = t[TIMES[k].key]; if (v) return v.replace(' ', 'T') }
   return `${t.trip_date}T00:00:00`
-}
-
-// "3:30" → den podle předchozího času (a když by byl dřív, tak další den); "2.11. 3:30" → přesně
-function parseDT(v: string, base: string, rollForward: boolean): string | null | undefined {
-  const s = v.trim()
-  if (!s) return null
-  const p = (n: number) => String(n).padStart(2, '0')
-  const full = s.match(/^(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?\s*(\d{4})?\s+(\d{1,2})[:.](\d{2})$/)
-  if (full) {
-    const y = Number(full[3] ?? base.slice(0, 4))
-    const d = new Date(y, Number(full[2]) - 1, Number(full[1]), Number(full[4]), Number(full[5]))
-    if (Number.isNaN(d.getTime()) || Number(full[4]) > 23 || Number(full[5]) > 59) return undefined
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`
-  }
-  const tm = s.match(/^(\d{1,2})[:.]?(\d{2})$/)
-  if (!tm) return undefined
-  const h = Number(tm[1]), mi = Number(tm[2])
-  if (h > 23 || mi > 59) return undefined
-  const [bd, bt] = base.split('T')
-  const [y, mo, da] = bd.split('-').map(Number)
-  const d = new Date(y, mo - 1, da, h, mi)
-  const b = new Date(y, mo - 1, da, Number(bt.slice(0, 2)), Number(bt.slice(3, 5)))
-  if (rollForward && d < b) d.setDate(d.getDate() + 1)
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`
 }
 
 function hours(a: string | null, b: string | null): string | null {

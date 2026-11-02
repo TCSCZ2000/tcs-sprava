@@ -156,7 +156,7 @@ export default function Routes() {
         <span className="count">{routes.length} tras</span>
         <input className="search" placeholder="Hledat (třeba frankfurt rudna)" value={q} onChange={e => setQ(e.target.value)} />
       </div>
-      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
+      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin HO→PUP a DOP→HO počítá Planning Start a Home. Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
 
       {canEdit && (
         <div className="newroute">
@@ -200,7 +200,7 @@ export default function Routes() {
               <th rowSpan={2}>Pup</th><th rowSpan={2}>Dop</th>
               {LEGS.map(l => <th key={l.key} colSpan={3} className="legh">{l.label}</th>)}
               <th colSpan={3} className="legh">Celkem</th>
-              <th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
+              <th rowSpan={2} title="Odkud je trasa počítaná. CZ = z domova; výjimečně třeba NL (NL→Pup→Dop→NL). V Planningu se u takové cesty ukáže štítek.">Základna</th><th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
             </tr>
             <tr>
               {[...LEGS, { key: 'sum' }].map(l => [<th key={l.key + 'k'}>km</th>, <th key={l.key + 'h'}>h</th>, <th key={l.key + 't'}>mýto</th>])}
@@ -217,6 +217,8 @@ export default function Routes() {
                   <td key={l.key + 't'}>{numCell(r, `${l.key}_toll` as keyof Route)}</td>,
                 ])}
                 <td className="ro num sum">{totalKm(r)}</td><td className="ro num sum">{fmt(totalH(r))}</td><td className="ro num sum">{totalToll(r)}</td>
+                <td className={r.home_base !== 'CZ' ? 'abroadcell' : ''}><Text disabled={!canEdit} value={r.home_base} time mono
+                  onSave={v => saveRoute(r, { home_base: v.trim().toUpperCase() || 'CZ' })} /></td>
                 <td>{numCell(r, 'rate_h')}</td><td>{numCell(r, 'rate_km')}</td>
                 <td className="prices">
                   {prices.filter(p => p.route_id === r.id).map(p => (

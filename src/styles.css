@@ -285,3 +285,8 @@ td.placeholder .cell { color: #8a4b08; font-style: italic; background: var(--soo
 .mroute { font-weight: 600; }
 .small { font-size: .8rem; }
 .manualprice { color: #9a5b00; font-weight: 600; white-space: nowrap; }
+td.start.manual { color: #9a5b00; }
+td.start .basetag { font-size: .7rem; font-weight: 700; color: #9a5b00; border: 1px solid #e0b66a; border-radius: 4px; padding: 0 .25rem; margin-left: .2rem; vertical-align: 1px; }
+td.abroadcell { color: #9a5b00; font-weight: 700; }
+.w-dt { width: 7rem; }
+td.start .cell.time { width: 6.6rem; min-width: 6rem; }

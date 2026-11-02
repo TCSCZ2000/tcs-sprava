@@ -87,3 +87,53 @@ export function inkOn(hex: string): string {
   const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
   return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#1d2b36' : '#ffffff'
 }
+
+// "2026-11-02T03:30:00" → "2. 11. 3:30"
+export function fmtDT(v: string | null) {
+  if (!v) return ''
+  const [d, t] = v.replace(' ', 'T').split('T')
+  const [, mo, da] = d.split('-').map(Number)
+  return `${da}. ${mo}. ${t.slice(0, 5)}`
+}
+
+// "3:30" → den podle předchozího času (a když by byl dřív, tak další den); "2.11. 3:30" → přesně
+export function parseDT(v: string, base: string, rollForward: boolean): string | null | undefined {
+  const s = v.trim()
+  if (!s) return null
+  const p = (n: number) => String(n).padStart(2, '0')
+  const full = s.match(/^(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?\s*(\d{4})?\s+(\d{1,2})[:.](\d{2})$/)
+  if (full) {
+    const y = Number(full[3] ?? base.slice(0, 4))
+    const d = new Date(y, Number(full[2]) - 1, Number(full[1]), Number(full[4]), Number(full[5]))
+    if (Number.isNaN(d.getTime()) || Number(full[4]) > 23 || Number(full[5]) > 59) return undefined
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`
+  }
+  const tm = s.match(/^(\d{1,2})[:.]?(\d{2})$/)
+  if (!tm) return undefined
+  const h = Number(tm[1]), mi = Number(tm[2])
+  if (h > 23 || mi > 59) return undefined
+  const [bd, bt] = base.split('T')
+  const [y, mo, da] = bd.split('-').map(Number)
+  const d = new Date(y, mo - 1, da, h, mi)
+  const b = new Date(y, mo - 1, da, Number(bt.slice(0, 2)), Number(bt.slice(3, 5)))
+  if (rollForward && d < b) d.setDate(d.getDate() + 1)
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`
+}
+
+
+// Posun času o hodiny; výsledek zaokrouhlený nahoru na čtvrthodiny (9:43 + 4,5 h → 14:15)
+export function addHoursIso(iso: string, h: number, roundUpMin = 15): string {
+  const d = new Date(iso.replace(' ', 'T'))
+  d.setMinutes(d.getMinutes() + Math.round(h * 60))
+  const r = d.getMinutes() % roundUpMin
+  if (r) d.setMinutes(d.getMinutes() + roundUpMin - r)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`
+}
+
+// Čas vůči dni cesty: stejný den jen „9:45“, jiný den „3. 11. 9:45“
+export function fmtRel(iso: string | null, tripDate: string): string {
+  if (!iso) return ''
+  const v = iso.replace(' ', 'T')
+  return v.slice(0, 10) === tripDate ? v.slice(11, 16) : fmtDT(v)
+}

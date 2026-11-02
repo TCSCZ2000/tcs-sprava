@@ -41,6 +41,8 @@ export interface Trip {
   km_pup: number | null; km_dop: number | null; km_total: number | null; toll: number | null; hours_manual: number | null; report_note: string | null
   route_price_id: string | null
   price_manual: number | null
+  start_at: string | null
+  home_at: string | null
 }
 export interface Customer { name: string; sort: number; active: boolean }
 export interface Route {
@@ -48,6 +50,8 @@ export interface Route {
   ho_pup_km: number | null; ho_pup_h: number | null; ho_pup_toll: number | null
   pup_dop_km: number | null; pup_dop_h: number | null; pup_dop_toll: number | null
   dop_ho_km: number | null; dop_ho_h: number | null; dop_ho_toll: number | null
-  rate_h: number; rate_km: number; note: string | null; copied_from: string | null
+  rate_h: number; rate_km: number; note: string | null; copied_from: string | null; home_base: string
 }
 export interface RoutePrice { id: string; route_id: string; label: string; pup_dop_h: number | null; price: number; sort: number }
+
+export type RouteTime = { pup_id: string; dop_id: string; ho_pup_h: number | null; dop_ho_h: number | null; home_base: string }
