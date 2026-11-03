@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
-import { LEGS, copyRoute, suggestRoutes, totalH, totalKm, totalToll } from '../lib/routes'
+import { LEGS, composeRoute, copyRoute, createComposedRoute, routeIncomplete, suggestRoutes, totalH, totalKm, totalToll, type LegPick } from '../lib/routes'
 import { todayIso } from '../lib/format'
 import { Text } from './Plan'
 
@@ -55,11 +55,17 @@ export default function Routes() {
       const cur = seen.get(k) ?? { pup: t.pup_id, dop: t.dop_id, base: t.home_base, count: 0 }
       cur.count++; seen.set(k, cur)
     }
-    return [...seen.values()].map(m => ({ ...m, suggestions: suggest(m.pup, m.dop, m.base) })).sort((a, b) => b.count - a.count)
+    return [...seen.values()].map(m => ({ ...m, suggestions: suggest(m.pup, m.dop, m.base), comp: composeRoute(m.pup, m.dop, m.base, routes, placeBy) })).sort((a, b) => b.count - a.count)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trips, routeBy, places])
 
   const suggest = (pup: string, dop: string, base: string) => suggestRoutes(pup, dop, base, routes, placeBy)
+
+  async function composeFor(pup: string, dop: string, base: string, ho: LegPick | null, dh: LegPick | null) {
+    const { error } = await createComposedRoute(pup, dop, base, ho, dh)
+    if (error) return toast(error, 'err')
+    toast('Trasa založena z úseků, doplňte PUP→DOP (km, hodiny, mýto).'); load()
+  }
 
   async function createRoute(pup: string, dop: string, homeBase: string, src?: Route) {
     const { error } = await copyRoute(src, pup, dop, homeBase, prices)
@@ -170,8 +176,12 @@ export default function Routes() {
                       Zkopírovat z {name(s.route.pup_id)} → {name(s.route.dop_id)}
                     </button>
                   ))}
+                  {canEdit && m.suggestions.length === 0 && (m.comp.ho || m.comp.dh) && (
+                    <button className="chip cust" title={`HO→PUP ${m.comp.ho ? 'z ' + m.comp.ho.why : 'chybí'}; DOP→HO ${m.comp.dh ? 'z ' + m.comp.dh.why : 'chybí'}. PUP→DOP doplníte.`}
+                      onClick={() => composeFor(m.pup, m.dop, m.base, m.comp.ho, m.comp.dh)}>Založit z úseků{m.comp.ho && m.comp.dh ? '' : m.comp.ho ? ' (jen HO→PUP)' : ' (jen DOP→HO)'}</button>
+                  )}
                   {canEdit && <button className="link" onClick={() => createRoute(m.pup, m.dop, m.base)}>Založit prázdnou</button>}
-                  {m.suggestions.length === 0 && <span className="quiet"> Žádná podobná trasa. Zkontrolujte města v Místech.</span>}
+                  {m.suggestions.length === 0 && !m.comp.ho && !m.comp.dh && <span className="quiet"> Žádná podobná trasa ani úsek. Zkontrolujte města v Místech.</span>}
                 </li>
               ))}
             </ul>
@@ -194,7 +204,7 @@ export default function Routes() {
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} className={routeIncomplete(r) ? 'incomplete' : ''} title={routeIncomplete(r) ? 'Chybí úsek PUP→DOP' + (r.note ? '. ' + r.note : '') : r.note ?? undefined}>
                 <td className="ro">{name(r.pup_id)}</td>
                 <td className="ro">{name(r.dop_id)}{r.copied_from && <span className="quiet small" title="Zkopírováno z jiné trasy"> ⧉</span>}</td>
                 {LEGS.map(l => [

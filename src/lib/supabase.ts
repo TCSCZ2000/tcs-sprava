@@ -53,7 +53,7 @@ export interface Route {
   ho_pup_km: number | null; ho_pup_h: number | null; ho_pup_toll: number | null
   pup_dop_km: number | null; pup_dop_h: number | null; pup_dop_toll: number | null
   dop_ho_km: number | null; dop_ho_h: number | null; dop_ho_toll: number | null
-  rate_h: number; rate_km: number; note: string | null; copied_from: string | null; home_base: string
+  rate_h: number; rate_km: number; note: string | null; copied_from: string | null; home_base: string; updated_at: string
 }
 export interface RoutePrice { id: string; route_id: string; label: string; pup_dop_h: number | null; price: number; sort: number }
 

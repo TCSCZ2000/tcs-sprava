@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
-import { copyRoute, eur, suggestRoutes, tripPrice } from '../lib/routes'
+import { composeRoute, copyRoute, createComposedRoute, eur, routeIncomplete, suggestRoutes, tripPrice, type LegPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
@@ -36,6 +36,12 @@ export default function Reports() {
     const { error } = await copyRoute(src, t.pup_id!, t.dop_id!, t.home_base, rprices)
     if (error) return toast(error, 'err')
     toast(`Trasa ${placeBy.get(t.pup_id!)?.name} → ${placeBy.get(t.dop_id!)?.name} založena jako kopie. Zkontrolujte ji v Trasách a cenách.`)
+    loadRoutes()
+  }
+  async function composeFor(t: Trip, ho: LegPick | null, dh: LegPick | null) {
+    const { error } = await createComposedRoute(t.pup_id!, t.dop_id!, t.home_base, ho, dh)
+    if (error) return toast(error, 'err')
+    toast(`Trasa založena z úseků. Doplňte PUP→DOP v Trasách a cenách (km, hodiny, mýto).`)
     loadRoutes()
   }
   const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}|${r.home_base}`, r])), [routes])
@@ -227,16 +233,21 @@ export default function Reports() {
                             ? <span className="ro manualprice">ručně {ed && <button className="link small" onClick={() => save(t, { price_manual: null })} title="Zrušit ruční cenu a počítat znovu">zrušit</button>}</span>
                             : route
                             ? <select disabled={!ed} value={t.route_price_id ?? ''} onChange={e => save(t, { route_price_id: e.target.value || null })}>
-                                <option value="">sazby ({route.rate_h} €/h, {route.rate_km} €/km)</option>
+                                <option value="">sazby ({route.rate_h} €/h, {route.rate_km} €/km){routeIncomplete(route) ? ' – chybí PUP→DOP!' : ''}</option>
                                 {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {eur(Number(p.price))}</option>)}
                               </select>
                             : (() => {
                                 const sug = t.pup_id && t.dop_id ? suggestRoutes(t.pup_id, t.dop_id, t.home_base, routes, placeBy) : []
+                                const comp = t.pup_id && t.dop_id && !sug.length ? composeRoute(t.pup_id, t.dop_id, t.home_base, routes, placeBy) : null
                                 return <span className="ro missingtxt" title={`V Trasách a cenách tahle trasa není${t.home_base === 'NL' ? ' (varianta NL–NL)' : ''}`}>
                                   chybí trasa{t.home_base === 'NL' ? ' NL' : ''}
                                   {sug.length > 0 && canRoutes && (
                                     <> <button className="link small" title={`Založí trasu jako kopii ${placeBy.get(sug[0].route.pup_id)?.name} → ${placeBy.get(sug[0].route.dop_id)?.name} (${sug[0].why}) včetně sazeb a pevných cen. Příště už se nebude ptát.`}
                                       onClick={() => adoptRoute(t, sug[0].route)}>použít {placeBy.get(sug[0].route.pup_id)?.name} → {placeBy.get(sug[0].route.dop_id)?.name}</button></>
+                                  )}
+                                  {comp && (comp.ho || comp.dh) && canRoutes && (
+                                    <> <button className="link small" title={`Založí trasu s hotovými úseky: HO→PUP ${comp.ho ? 'z ' + comp.ho.why : 'chybí'}; DOP→HO ${comp.dh ? 'z ' + comp.dh.why : 'chybí'}. Úsek PUP→DOP pak doplníte v Trasách a cenách.`}
+                                      onClick={() => composeFor(t, comp.ho, comp.dh)}>založit z úseků{comp.ho && comp.dh ? '' : comp.ho ? ' (jen HO→PUP)' : ' (jen DOP→HO)'}</button></>
                                   )}
                                 </span>
                               })()}
