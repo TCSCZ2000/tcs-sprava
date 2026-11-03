@@ -3,6 +3,8 @@ import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabas
 import { eur, tripPrice } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
+import { chainHours, fmtGap, type Link } from '../lib/hours'
+import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { Text } from './Plan'
 
 const REPORT = 'Report'
@@ -33,6 +35,8 @@ export default function Reports() {
   const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}|${r.home_base}`, r])), [routes])
   const [trips, setTrips] = useState<Trip[]>([])
   const [showDone, setShowDone] = useState(false)
+  const [doneMonth, setDoneMonth] = useState(todayIso().slice(0, 7))
+  const [chainTrips, setChainTrips] = useState<Trip[]>([])
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
 
@@ -43,12 +47,21 @@ export default function Reports() {
 
   useEffect(() => {
     let q = supabase.from('trips').select('*').order('trip_date').order('trip_time', { nullsFirst: true })
-    q = showDone ? q.or(`status.eq.${REPORT},and(status.eq.${DONE},trip_date.gte.${todayIso(-45)})`) : q.eq('status', REPORT)
+    const [y, mo] = doneMonth.split('-').map(Number)
+    const next = `${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}-01`
+    q = showDone ? q.or(`status.eq.${REPORT},and(status.eq.${DONE},trip_date.gte.${doneMonth}-01,trip_date.lt.${next})`) : q.eq('status', REPORT)
     q.then(({ data, error }) => {
       if (error) toast(explain(error), 'err')
       setTrips((data as Trip[]) ?? []); setLoaded(true)
     })
-  }, [showDone, toast])
+  }, [showDone, doneMonth, toast])
+
+  // Cesty s odjezdem za posledních 90 dní kvůli navazování (předchozí cesta posádky může být i hotová nebo ještě v plánu)
+  useEffect(() => {
+    supabase.from('trips').select('*').not('dep_home', 'is', null).gte('trip_date', todayIso(-90))
+      .then(({ data }) => setChainTrips((data as Trip[]) ?? []))
+  }, [trips])
+  const { byNext } = useMemo(() => chainHours(chainTrips), [chainTrips])
 
   useEffect(() => {
     const ch = supabase.channel('reports')
@@ -84,6 +97,25 @@ export default function Reports() {
     save(t, { report_no: last + 1 })
   }
 
+  function excel() {
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const body: Cell[][] = []
+    for (const [, rows] of groups) for (const t of rows) {
+      const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, t.arr_dop)
+      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.home_base}`)
+      const pr = seePrice ? tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && t.dep_dop ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) ?? '0').replace(',', '.')) : null) : null
+      const links = byNext.get(t.id) ?? []
+      body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs,
+        placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name,
+        [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', '),
+        carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no,
+        ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
+        t.combi === true ? 'ano' : t.combi === false ? 'ne' : links.some(l => l.kind === 'auto' || l.kind === 'overlap') ? 'navrženo' : '',
+        pr?.how, pr?.price, t.report_note, t.status])
+    }
+    exportXlsx(`reporty_${showDone ? doneMonth : todayIso()}`, [{ name: 'Reporty', rows: [head, ...body] }])
+  }
+
   const groups = useMemo(() => {
     const order = [...customers.map(c => c.name), NO_CUSTOMER]
     const m = new Map<string, Trip[]>(order.map(c => [c, []]))
@@ -92,7 +124,7 @@ export default function Reports() {
   }, [trips, customers, hiddenCust])
 
   const waiting = trips.filter(t => t.status === REPORT).length
-  const COLS = seePrice ? 25 : 23
+  const COLS = seePrice ? 26 : 24
 
   return (
     <section className="plan reports size-s">
@@ -107,7 +139,11 @@ export default function Reports() {
             </button>
           ))}
         </div>
-        <label className="check"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />Ukázat i hotové za posledních 45 dní</label>
+        <label className="check"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />Ukázat i hotové za</label>
+        <input type="month" value={doneMonth} onChange={e => e.target.value && setDoneMonth(e.target.value)} disabled={!showDone} className="search" style={{ minWidth: 'auto', flex: '0 0 auto' }} />
+        <span className="grow" />
+        <button className="ghostbtn" onClick={excel}>Excel</button>
+        <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
       </div>
       <p className="intro">Sem přijde každá cesta, které v Planningu dáte status Report. Časy pište jako 3:30 (den se doplní sám) nebo 2.11. 3:30. Hotový report uzavřete tlačítkem Hotovo, cesta dostane status Finished.</p>
 
@@ -118,7 +154,7 @@ export default function Reports() {
               <th>Datum</th><th>Zákazník</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th>Posádka</th><th>Auto</th>
               {TIMES.map(x => <th key={x.key}>{x.label}</th>)}
               <th>Km Pup</th><th>Km Dop</th><th>Km celkem</th><th>Mýto €</th>
-              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th>{seePrice && <><th>Cena podle</th><th title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena € bez DPH</th></>}<th>Poznámka</th><th />
+              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th><th title="Navazuje na předchozí cestu posádky: konec předchozí cesty se pro hodiny lidí posune na start téhle. Překryv vždy, mezera do 6 h se navrhne sama.">Navazuje</th>{seePrice && <><th>Cena podle</th><th title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena € bez DPH</th></>}<th>Poznámka</th><th />
             </tr>
           </thead>
           {groups.map(([cust, rows]) => (
@@ -168,6 +204,7 @@ export default function Reports() {
                     <td className="ro num">{escort ?? ''}</td>
                     <td><Text disabled={!ed} value={t.hours_manual?.toString().replace('.', ',') ?? ''} time mono
                       onSave={v => { const n = num(v); if (n === undefined) return toast('Hodiny pište jako číslo, třeba 14,5.', 'err'); save(t, { hours_manual: n }) }} /></td>
+                    <td className="combi">{combiCell(t, byNext.get(t.id) ?? [], ed, v => save(t, { combi: v }), personBy)}</td>
                     {seePrice && (() => {
                       const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.home_base}`)
                       const opts = route ? rprices.filter(p => p.route_id === route.id) : []
@@ -243,4 +280,16 @@ function num(v: string): number | null | undefined {
   if (!s) return null
   const n = Number(s)
   return Number.isFinite(n) ? n : undefined
+}
+
+// Sloupec Navazuje: stav zatržítka + co to znamená pro lidi na obou cestách
+function combiCell(t: Trip, links: Link[], ed: boolean, set: (v: boolean | null) => void, personBy: Map<string, { short_name: string }>) {
+  const who = links.map(l => `${personBy.get(l.person)?.short_name ?? '?'} ← ${l.prev.ref_tcs ?? (l.prev.report_no ? '#' + l.prev.report_no : 'předchozí')} (${l.gapH < 0 ? 'překryv ' : 'mezera '}${fmtGap(l.gapH)})`).join('\n')
+  const auto = links.some(l => l.kind === 'auto'), overlap = links.some(l => l.kind === 'overlap')
+  if (t.combi === true) return <span className="combi-yes" title={who || 'Potvrzeno ručně'}>navazuje{ed && <> <button className="link small" onClick={() => set(null)}>zrušit</button></>}</span>
+  if (t.combi === false) return <span className="quiet" title={who}>nenavazuje{ed && <> <button className="link small" onClick={() => set(null)}>zrušit</button></>}</span>
+  if (auto) return <span className="combi-auto" title={who}>navrženo{ed && <> <button className="link small" onClick={() => set(true)}>potvrdit</button> <button className="link small" onClick={() => set(false)}>ne</button></>}</span>
+  if (overlap) return <span className="combi-auto" title={who + '\nPřekryv se pro hodiny zkrátí vždy.'}>překryv</span>
+  if (!links.length) return ed && t.dep_home ? <button className="link small quiet" title="Posádka pokračovala z předchozí cesty (mezera přes 6 h)" onClick={() => set(true)}>navazuje?</button> : null
+  return ed ? <button className="link small quiet" title={who} onClick={() => set(true)}>navazuje?</button> : <span className="quiet" title={who}>–</span>
 }

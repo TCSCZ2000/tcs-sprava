@@ -293,3 +293,39 @@ td.start .cell.time { width: 6.6rem; min-width: 6rem; }
 .w-nl { width: 2.2rem; }
 .nlcheck { display: flex; align-items: center; gap: .3rem; font-weight: 600; color: #9a5b00; }
 .nltag { font-size: .7rem; font-weight: 700; color: #9a5b00; border: 1px solid #e0b66a; border-radius: 4px; padding: 0 .25rem; margin-left: .35rem; vertical-align: 1px; }
+
+/* Hodiny, navazování, export */
+.ghostbtn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: .4rem .7rem; color: var(--ink); cursor: pointer; }
+.ghostbtn:hover { border-color: var(--ink-2); }
+.grow { flex: 1; }
+.warn { background: #fff4d6; border-left: 4px solid #e0a800; padding: .5rem .75rem; border-radius: 6px; margin: 0 0 .75rem; }
+.hoursgrid td.num, .hoursgrid th.num, .sub td.num, .sub th.num { text-align: right; }
+.hoursgrid td, .hoursgrid th { padding: .3rem .5rem; }
+.hoursgrid tr.open > td { background: #f3f5f8; }
+.hoursgrid tr.detail > td { background: #fafbfc; padding: .4rem 1rem .8rem 2rem; }
+.hoursgrid tfoot td { border-top: 2px solid var(--line); background: #f3f5f8; }
+table.sub { border-collapse: collapse; font-size: .9em; }
+table.sub th, table.sub td { padding: .15rem .6rem; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+table.sub tr.extra td { color: var(--ink-2); font-style: italic; }
+.strike { text-decoration: line-through; color: var(--ink-2); }
+.saving { color: #1a7f37; }
+.adj-overlap, .adj-confirmed, .adj-manual { color: #1a7f37; font-weight: 600; }
+.adj-auto { color: #9a5b00; font-weight: 600; }
+.combi-yes { color: #1a7f37; font-weight: 600; white-space: nowrap; }
+.combi-auto { color: #9a5b00; font-weight: 600; white-space: nowrap; }
+td.combi { white-space: nowrap; }
+.newroute select, .newroute input[type=date] { font-size: .95rem; border: 1px solid var(--line); border-radius: 6px; padding: .4rem .5rem; background: var(--surface); }
+
+/* Tisk / PDF: jen tabulka, na šířku */
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  body { background: #fff; }
+  header.top, .toolbar, .intro, .fleet, .fleetbar, .ghostbtn, .actions, .warn, .newroute, .missing, .toast { display: none !important; }
+  .tablewrap { overflow: visible !important; }
+  table.grid { min-width: 0 !important; font-size: 8pt; }
+  table.grid th, table.grid td { padding: 1px 3px !important; }
+  tr.trip, tr.dayrow { break-inside: avoid; }
+  input, select { border: 0 !important; background: transparent !important; }
+  input::placeholder { color: transparent; }
+  .hoursgrid tr.detail > td { padding-left: 1rem; }
+}

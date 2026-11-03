@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { supabase, type RouteTime, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { carAlerts, inPlanning } from '../lib/cars'
@@ -215,6 +216,18 @@ export default function Plan() {
     .map(t => `${dateLabel(t.trip_date)} ${hm(t.trip_time)} ${placeBy.get(t.pup_id ?? '')?.name ?? ''} → ${placeBy.get(t.dop_id ?? '')?.name ?? ''}`).join('\n')
   const fleet = cars.filter(c => inPlanning(c, carCategories))
 
+  function excel() {
+    const head: Cell[] = ['Datum', 'Čas', 'Status', 'Ref. TCS', 'Zákazník', 'Pup', 'Dop', 'Guard 1', 'Guard 2', 'Guard 3', 'Auto', 'Odkud', 'NL', 'Start', 'Konec Dop', 'Home', 'Poznámka', 'Změna']
+    const rows: Cell[][] = visible.map(t => [
+      t.trip_date.split('-').reverse().join('.'), hm(t.trip_time), t.status, t.ref_tcs, t.customer,
+      placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name,
+      ...GUARDS.map(g => personBy.get(t[g] ?? '')?.short_name), carBy.get(t.car_id ?? '')?.label,
+      t.car_origin === 'Jiné' ? t.car_origin_other : t.car_origin, t.home_base === 'NL' ? 'NL' : '',
+      t.start_at ? fmtDT(t.start_at) : '', fmtDT(t.dep_dop), t.home_at ? fmtDT(t.home_at) : '', t.remarks, t.crew_change,
+    ])
+    exportXlsx(`planning_${hist ? 'historie_' : ''}${todayIso()}`, [{ name: hist ? 'Historie' : 'Planning', rows: [head, ...rows] }])
+  }
+
   function toggleStatus(name: string) {
     setHidden(cur => { const n = new Set(cur); n.has(name) ? n.delete(name) : n.add(name); return n })
   }
@@ -254,6 +267,8 @@ export default function Plan() {
           <button className={'fs-s' + (size === 's' ? ' on' : '')} aria-pressed={size === 's'} onClick={() => setSize('s')} title="Menší písmo">A</button>
           <button className={'fs-xs' + (size === 'xs' ? ' on' : '')} aria-pressed={size === 'xs'} onClick={() => setSize('xs')} title="Nejmenší písmo">A</button>
         </div>
+        <button className="ghostbtn" onClick={excel} title="Uložit zobrazené cesty do Excelu">Excel</button>
+        <button className="ghostbtn" onClick={printPdf} title="Vytisknout nebo uložit jako PDF">Tisk / PDF</button>
         {canCreate && !hist && <button className="primary" onClick={addTrip}>Nová cesta</button>}
       </div>
 

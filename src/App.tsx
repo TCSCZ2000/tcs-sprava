@@ -8,12 +8,14 @@ import Cars from './pages/Cars'
 import Users from './pages/Users'
 import Reports from './pages/Reports'
 import Routes from './pages/Routes'
+import Hours from './pages/Hours'
 
 const PAGES: { id: string; label: string; module: ModuleKey; el: () => JSX.Element }[] = [
   { id: 'plan', label: 'Planning', module: 'planning', el: () => <Plan /> },
   { id: 'podklad', label: 'Podklad', module: 'podklad', el: () => <Podklad /> },
   { id: 'reporty', label: 'Reporty', module: 'reports', el: () => <Reports /> },
   { id: 'trasy', label: 'Trasy a ceny', module: 'routes', el: () => <Routes /> },
+  { id: 'hodiny', label: 'Hodiny', module: 'hours', el: () => <Hours /> },
   { id: 'lide', label: 'Lidé', module: 'people', el: () => <People /> },
   { id: 'auta', label: 'Auta', module: 'cars', el: () => <Cars /> },
   { id: 'mista', label: 'Místa', module: 'places', el: () => <Places /> },

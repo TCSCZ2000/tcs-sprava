@@ -44,6 +44,7 @@ export interface Trip {
   start_at: string | null
   home_at: string | null
   home_base: 'CZ' | 'NL'
+  combi: boolean | null
 }
 export interface Customer { name: string; sort: number; active: boolean }
 export interface Route {
@@ -56,3 +57,4 @@ export interface Route {
 export interface RoutePrice { id: string; route_id: string; label: string; pup_dop_h: number | null; price: number; sort: number }
 
 export type RouteTime = { pup_id: string; dop_id: string; ho_pup_h: number | null; dop_ho_h: number | null; home_base: string }
+export interface HoursExtra { id: string; person_id: string; work_date: string; kind: 'mimo' | 'pevne'; hours: number; note: string | null }

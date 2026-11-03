@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Car, type Level, type Person, type PersonDocs, type Place, type Profile, type Status, type Customer, type CarCategory } from './supabase'
 
-export const MODULES = ['planning', 'planning_create', 'planning_status', 'planning_crew', 'planning_route', 'podklad', 'reports', 'routes', 'people', 'people_docs', 'cars', 'places', 'users'] as const
+export const MODULES = ['planning', 'planning_create', 'planning_status', 'planning_crew', 'planning_route', 'podklad', 'reports', 'routes', 'hours', 'people', 'people_docs', 'cars', 'places', 'users'] as const
 export type ModuleKey = (typeof MODULES)[number]
 
 interface Ctx {
