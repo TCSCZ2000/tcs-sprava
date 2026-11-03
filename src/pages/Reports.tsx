@@ -127,7 +127,7 @@ export default function Reports() {
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Další Dop', 'Základna odkud', 'Základna kam', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const end = jobEnd(t, stops)
@@ -272,7 +272,7 @@ export default function Reports() {
                                   )}
                                   {comp && (comp.ho || comp.dh) && canRoutes && (
                                     <> <button className="link small" title={`Založí trasu s hotovými úseky: ${t.base_from}→PUP ${comp.ho ? 'z ' + comp.ho.why : 'chybí'}; ${comp.mid ? 'PUP→DOP součet ' + comp.mid.parts.join(' + ') + '; ' : ''}DOP→${t.base_to} ${comp.dh ? 'z ' + comp.dh.why : 'chybí'}.${comp.mid ? '' : ' Úsek PUP→DOP pak doplníte v Trasách a cenách.'}`}
-                                      onClick={() => composeFor(t, comp.ho, comp.dh, comp.mid)}>založit z úseků{comp.mid ? ' (i PUP→DOP)' : comp.ho && comp.dh ? '' : comp.ho ? ' (jen Odkud→PUP)' : ' (jen DOP→Kam)'}</button></>
+                                      onClick={() => composeFor(t, comp.ho, comp.dh, comp.mid)}>založit z úseků{comp.mid ? ' (i PUP→DOP)' : comp.ho && comp.dh ? '' : comp.ho ? ' (jen Výjezd→PUP)' : ' (jen DOP→Návrat)'}</button></>
                                   )}
                                 </span>
                               })()}

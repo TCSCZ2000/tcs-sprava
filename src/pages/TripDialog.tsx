@@ -66,7 +66,7 @@ export function TripDialog({ title, initial, onSave, onClose, saving, can }: {
           <label>Guard 2<input type="text" list="dlg-people" value={f.guard2} disabled={!can.crew} onChange={e => set('guard2', e.target.value)} /></label>
           <label title="Třetí člen posádky, jen výjimečně">Guard 3<input type="text" list="dlg-people" value={f.guard3} disabled={!can.crew} onChange={e => set('guard3', e.target.value)} /></label>
           <label>Auto<input type="text" list="dlg-cars" placeholder="SPZ nebo Sixt" value={f.car} disabled={!can.crew} onChange={e => set('car', e.target.value)} /></label>
-          <label>Odkud auto
+          <label title="Kde auto před cestou stojí: Praha, Příbram, jinde">Auto z
             <select value={f.car_origin} disabled={!can.crew} onChange={e => set('car_origin', e.target.value)}>
               <option value="">–</option><option>Praha</option><option>Příbram</option><option>Jiné</option>
             </select>
@@ -77,8 +77,8 @@ export function TripDialog({ title, initial, onSave, onClose, saving, can }: {
               <option value="">–</option>{customers.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
           </label>
-          <label>Základna odkud<BaseSelect value={f.base_from} disabled={!can.route} onChange={v => set('base_from', v)} /></label>
-          <label>Základna kam<BaseSelect value={f.base_to} disabled={!can.route} onChange={v => set('base_to', v)} /></label>
+          <label title="Základna, ze které posádka vyjíždí (CZ = Praha/Příbram)">Výjezd z<BaseSelect value={f.base_from} disabled={!can.route} onChange={v => set('base_from', v)} /></label>
+          <label title="Základna, kam se posádka vrací">Návrat do<BaseSelect value={f.base_to} disabled={!can.route} onChange={v => set('base_to', v)} /></label>
           <label className="checkline span2"><input type="checkbox" checked={f.takeover} disabled={!can.route} onChange={e => set('takeover', e.target.checked)} /> Take-over (přebíráme od cizí posádky)</label>
           <label className="span4">Poznámka<textarea rows={2} value={f.remarks} onChange={e => set('remarks', e.target.value)} /></label>
         </div>

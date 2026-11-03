@@ -1,9 +1,9 @@
 import { supabase, type Place, type Route, type RoutePrice, type Trip } from './supabase'
 
 export const LEGS = [
-  { key: 'ho_pup', label: 'Odkud→PUP' },
+  { key: 'ho_pup', label: 'Výjezd→PUP' },
   { key: 'pup_dop', label: 'PUP→DOP' },
-  { key: 'dop_ho', label: 'DOP→Kam' },
+  { key: 'dop_ho', label: 'DOP→Návrat' },
 ] as const
 
 const n = (v: number | string | null | undefined) => (v == null || v === '' ? 0 : Number(v))

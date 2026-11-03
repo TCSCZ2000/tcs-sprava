@@ -152,7 +152,7 @@ export default function Routes() {
         <span className="count">{routes.length} tras</span>
         <input className="search" placeholder="Hledat (třeba frankfurt rudna)" value={q} onChange={e => setQ(e.target.value)} />
       </div>
-      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin Odkud→PUP a DOP→Kam počítá Planning Start a Home (základny CZ, NL, … spravujete v Místech). Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
+      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin Výjezd→PUP a DOP→Návrat počítá Planning Start a Home (základny CZ, NL, … spravujete v Místech). Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
 
       {canEdit && (
         <div className="newroute">
@@ -160,7 +160,7 @@ export default function Routes() {
           <input className="search" list="dl-places" placeholder="Pup" value={newPup} onChange={e => setNewPup(e.target.value)} />
           <span>→</span>
           <input className="search" list="dl-places" placeholder="Dop" value={newDop} onChange={e => setNewDop(e.target.value)} />
-          <span className="quiet">odkud</span><BaseSelect value={newFrom} onChange={setNewFrom} /><span className="quiet">kam</span><BaseSelect value={newTo} onChange={setNewTo} />
+          <span className="quiet">výjezd z</span><BaseSelect value={newFrom} onChange={setNewFrom} /><span className="quiet">návrat do</span><BaseSelect value={newTo} onChange={setNewTo} />
           <input className="search" style={{ minWidth: '8rem', flex: '0 1 10rem' }} placeholder="varianta (třeba přes Francii)" title="Vyplňte, když stejná trasa jede jinudy: přes Francii, přes Švýcarsko… Prázdné = základní varianta." value={newVariant} onChange={e => setNewVariant(e.target.value)} />
           <button className="primary" onClick={submitNew}>{copyFrom ? 'Zkopírovat' : 'Založit'}</button>
           {copyFrom && <button className="link" onClick={() => setCopyFrom(null)}>Zrušit kopírování</button>}
@@ -184,7 +184,7 @@ export default function Routes() {
                   ))}
                   {canEdit && m.suggestions.length === 0 && (m.comp.ho || m.comp.dh) && (
                     <button className="chip cust" title={`${m.from}→PUP ${m.comp.ho ? 'z ' + m.comp.ho.why : 'chybí'}; ${m.comp.mid ? 'PUP→DOP součet ' + m.comp.mid.parts.join(' + ') + '; ' : ''}DOP→${m.to} ${m.comp.dh ? 'z ' + m.comp.dh.why : 'chybí'}.${m.comp.mid ? '' : ' PUP→DOP doplníte.'}`}
-                      onClick={() => composeFor(m.pup, m.dop, m.from, m.to, m.comp.ho, m.comp.dh, m.st, m.comp.mid)}>Založit z úseků{m.comp.mid ? ' (i PUP→DOP)' : m.comp.ho && m.comp.dh ? '' : m.comp.ho ? ' (jen Odkud→PUP)' : ' (jen DOP→Kam)'}</button>
+                      onClick={() => composeFor(m.pup, m.dop, m.from, m.to, m.comp.ho, m.comp.dh, m.st, m.comp.mid)}>Založit z úseků{m.comp.mid ? ' (i PUP→DOP)' : m.comp.ho && m.comp.dh ? '' : m.comp.ho ? ' (jen Výjezd→PUP)' : ' (jen DOP→Návrat)'}</button>
                   )}
                   {canEdit && <button className="link" onClick={() => createRoute(m.pup, m.dop, m.from, m.to, undefined, '', m.st)}>Založit prázdnou</button>}
                   {m.suggestions.length === 0 && !m.comp.ho && !m.comp.dh && <span className="quiet"> Žádná podobná trasa ani úsek. Zkontrolujte města v Místech.</span>}
@@ -202,7 +202,7 @@ export default function Routes() {
               <th rowSpan={2}>Pup</th><th rowSpan={2}>Dop</th><th rowSpan={2} title="Varianta stejné trasy, třeba přes Francii / přes Švýcarsko. Prázdné = základní. V Reportech a Planningu si u cesty vyberete, která platí.">Varianta</th>
               {LEGS.map(l => <th key={l.key} colSpan={3} className="legh">{l.label}</th>)}
               <th colSpan={3} className="legh">Celkem</th>
-              <th rowSpan={2} title="Odkud posádka vyjíždí a kam se vrací. Výchozí CZ → CZ. Cesta v Planningu si vybere trasu se stejnou dvojicí.">Odkud / Kam</th><th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
+              <th rowSpan={2} title="Základna: odkud posádka vyjíždí a kam se vrací. Výchozí CZ → CZ. Cesta v Planningu si vybere trasu se stejnou dvojicí.">Základna výjezd / návrat</th><th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
             </tr>
             <tr>
               {[...LEGS, { key: 'sum' }].map(l => [<th key={l.key + 'k'}>km</th>, <th key={l.key + 'h'}>h</th>, <th key={l.key + 't'}>mýto</th>])}
