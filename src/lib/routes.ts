@@ -1,4 +1,4 @@
-import type { Route, RoutePrice, Trip } from './supabase'
+import { supabase, type Place, type Route, type RoutePrice, type Trip } from './supabase'
 
 export const LEGS = [
   { key: 'ho_pup', label: 'HO→PUP' },
@@ -47,4 +47,32 @@ export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[
     price: Math.round((hrs + car + toll) * 100) / 100,
     how: `${crew} × ${hours} h × ${route.rate_h} € + ${km} km × ${route.rate_km} € + mýto ${toll} €`,
   }
+}
+
+// Podobné trasy: stejné Pup / Dop, nebo stejné město (KN Frankfurt ~ CHI Frankfurt), stejná základna
+export function suggestRoutes(pup: string, dop: string, base: string, routes: Route[], placeBy: Map<string, Place>): { route: Route; why: string }[] {
+  const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
+  const pc = city(pup), dc = city(dop)
+  const out: { route: Route; why: string; score: number }[] = []
+  for (const r of routes) {
+    if (r.home_base !== base) continue
+    const samePup = r.pup_id === pup, sameDop = r.dop_id === dop
+    const pupCity = !!pc && city(r.pup_id) === pc, dopCity = !!dc && city(r.dop_id) === dc
+    if ((samePup || pupCity) && (sameDop || dopCity) && !(samePup && sameDop)) {
+      out.push({ route: r, score: (samePup ? 2 : 1) + (sameDop ? 2 : 1), why: [samePup ? 'stejné Pup' : `Pup v ${placeBy.get(pup)?.city}`, sameDop ? 'stejné Dop' : `Dop v ${placeBy.get(dop)?.city}`].join(', ') })
+    }
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 3)
+}
+
+// Založí trasu jako kopii jiné (úseky, sazby, pevné ceny); vrací chybu nebo null
+export async function copyRoute(src: Route | undefined, pup: string, dop: string, base: string, prices: RoutePrice[]): Promise<{ error: string | null; id?: string }> {
+  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'home_base'].includes(k))) : {}
+  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, home_base: base, copied_from: src?.id ?? null }).select().single()
+  if (error) return { error: error.code === '23505' ? 'Tahle trasa už existuje.' : error.message }
+  if (src) {
+    const ps = prices.filter(p => p.route_id === src.id).map(p => ({ route_id: (data as Route).id, label: p.label, pup_dop_h: p.pup_dop_h, price: p.price, sort: p.sort }))
+    if (ps.length) await supabase.from('route_prices').insert(ps)
+  }
+  return { error: null, id: (data as Route).id }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
-import { eur, tripPrice } from '../lib/routes'
+import { copyRoute, eur, suggestRoutes, tripPrice } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
@@ -28,24 +28,29 @@ export default function Reports() {
   const seePrice = level('routes') !== 'none'
   const [routes, setRoutes] = useState<Route[]>([])
   const [rprices, setRprices] = useState<RoutePrice[]>([])
-  useEffect(() => {
-    if (!seePrice) return
-    Promise.all([supabase.from('routes').select('*'), supabase.from('route_prices').select('*').order('sort')])
-      .then(([r, p]) => { setRoutes((r.data as Route[]) ?? []); setRprices((p.data as RoutePrice[]) ?? []) })
-  }, [seePrice])
+  const loadRoutes = () => Promise.all([supabase.from('routes').select('*'), supabase.from('route_prices').select('*').order('sort')])
+    .then(([r, p]) => { setRoutes((r.data as Route[]) ?? []); setRprices((p.data as RoutePrice[]) ?? []) })
+  useEffect(() => { if (seePrice) loadRoutes() }, [seePrice])
+  const canRoutes = level('routes') === 'write'
+  async function adoptRoute(t: Trip, src: Route) {
+    const { error } = await copyRoute(src, t.pup_id!, t.dop_id!, t.home_base, rprices)
+    if (error) return toast(error, 'err')
+    toast(`Trasa ${placeBy.get(t.pup_id!)?.name} → ${placeBy.get(t.dop_id!)?.name} založena jako kopie. Zkontrolujte ji v Trasách a cenách.`)
+    loadRoutes()
+  }
   const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}|${r.home_base}`, r])), [routes])
   const [trips, setTrips] = useState<Trip[]>([])
-  const [showDone, setShowDone] = useState(false)
+  const [showDone, setShowDone] = useState(true)
   const [doneMonth, setDoneMonth] = useState(todayIso().slice(0, 7))
   const [chainTrips, setChainTrips] = useState<Trip[]>([])
   const [routeTimes, setRouteTimes] = useState<RouteTime[]>([])
   useEffect(() => { supabase.rpc('route_times').then(({ data }) => setRouteTimes((data as RouteTime[]) ?? [])) }, [])
-  const ridx = useMemo(() => buildRouteIndex(routeTimes), [routeTimes])
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
+  const ridx = useMemo(() => buildRouteIndex(routeTimes, placeBy), [routeTimes, placeBy])
   const carBy = useMemo(() => new Map(cars.map(c => [c.id, c])), [cars])
   const statusBy = useMemo(() => new Map(statuses.map(s => [s.name, s])), [statuses])
 
@@ -102,7 +107,7 @@ export default function Reports() {
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, t.arr_dop)
@@ -110,7 +115,7 @@ export default function Reports() {
       const pr = seePrice ? tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && t.dep_dop ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) ?? '0').replace(',', '.')) : null) : null
       const links = byNext.get(t.id) ?? []
       body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs,
-        placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name,
+        placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, t.takeover ? 'ano' : '',
         [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', '),
         carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no,
         ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
@@ -143,7 +148,7 @@ export default function Reports() {
             </button>
           ))}
         </div>
-        <label className="check"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />Ukázat i hotové za</label>
+        <label className="check"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />I hotové za</label>
         <input type="month" value={doneMonth} onChange={e => e.target.value && setDoneMonth(e.target.value)} disabled={!showDone} className="search" style={{ minWidth: 'auto', flex: '0 0 auto' }} />
         <span className="grow" />
         <button className="ghostbtn" onClick={excel}>Excel</button>
@@ -184,7 +189,7 @@ export default function Reports() {
                     </td>
                     <td><Text disabled={!ed} value={t.ref_tcs ?? ''} mono time placeholder="A·····"
                       onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
-                    <td className="ro">{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}</td>
+                    <td className="ro">{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}</td>
                     <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}</td>
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => (
@@ -225,7 +230,16 @@ export default function Reports() {
                                 <option value="">sazby ({route.rate_h} €/h, {route.rate_km} €/km)</option>
                                 {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {eur(Number(p.price))}</option>)}
                               </select>
-                            : <span className="ro missingtxt" title={`V Trasách a cenách tahle trasa není${t.home_base === 'NL' ? ' (varianta NL–NL)' : ''}`}>chybí trasa{t.home_base === 'NL' ? ' NL' : ''}</span>}
+                            : (() => {
+                                const sug = t.pup_id && t.dop_id ? suggestRoutes(t.pup_id, t.dop_id, t.home_base, routes, placeBy) : []
+                                return <span className="ro missingtxt" title={`V Trasách a cenách tahle trasa není${t.home_base === 'NL' ? ' (varianta NL–NL)' : ''}`}>
+                                  chybí trasa{t.home_base === 'NL' ? ' NL' : ''}
+                                  {sug.length > 0 && canRoutes && (
+                                    <> <button className="link small" title={`Založí trasu jako kopii ${placeBy.get(sug[0].route.pup_id)?.name} → ${placeBy.get(sug[0].route.dop_id)?.name} (${sug[0].why}) včetně sazeb a pevných cen. Příště už se nebude ptát.`}
+                                      onClick={() => adoptRoute(t, sug[0].route)}>použít {placeBy.get(sug[0].route.pup_id)?.name} → {placeBy.get(sug[0].route.dop_id)?.name}</button></>
+                                  )}
+                                </span>
+                              })()}
                         </td>
                         <td className="num" title={pr?.how}>
                           <Text disabled={!ed} value={pr ? eur(pr.price) : ''} time mono placeholder={ed ? 'zadat' : ''}

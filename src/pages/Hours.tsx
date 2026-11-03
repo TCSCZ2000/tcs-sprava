@@ -30,7 +30,7 @@ export default function Hours() {
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
-  const ridx = useMemo(() => buildRouteIndex(routeTimes), [routeTimes])
+  const ridx = useMemo(() => buildRouteIndex(routeTimes, placeBy), [routeTimes, placeBy])
   useEffect(() => { supabase.rpc('route_times').then(({ data }) => setRouteTimes((data as RouteTime[]) ?? [])) }, [])
   const from = monthStart(month), to = monthStart(shiftMonth(month, 1))
 

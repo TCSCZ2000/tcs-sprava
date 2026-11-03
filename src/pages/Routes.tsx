@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
-import { LEGS, totalH, totalKm, totalToll } from '../lib/routes'
+import { LEGS, copyRoute, suggestRoutes, totalH, totalKm, totalToll } from '../lib/routes'
 import { todayIso } from '../lib/format'
 import { Text } from './Plan'
 
@@ -59,28 +59,11 @@ export default function Routes() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trips, routeBy, places])
 
-  function suggest(pup: string, dop: string, base: string): { route: Route; why: string }[] {
-    const pc = city(pup), dc = city(dop)
-    const out: { route: Route; why: string; score: number }[] = []
-    for (const r of routes) {
-      if (r.home_base !== base) continue
-      const samePup = r.pup_id === pup, sameDop = r.dop_id === dop
-      const pupCity = !!pc && city(r.pup_id) === pc, dopCity = !!dc && city(r.dop_id) === dc
-      if ((samePup || pupCity) && (sameDop || dopCity)) {
-        out.push({ route: r, score: (samePup ? 2 : 1) + (sameDop ? 2 : 1), why: [samePup ? 'stejné Pup' : `Pup v ${placeBy.get(pup)?.city}`, sameDop ? 'stejné Dop' : `Dop v ${placeBy.get(dop)?.city}`].join(', ') })
-      }
-    }
-    return out.sort((a, b) => b.score - a.score).slice(0, 3)
-  }
+  const suggest = (pup: string, dop: string, base: string) => suggestRoutes(pup, dop, base, routes, placeBy)
 
   async function createRoute(pup: string, dop: string, homeBase: string, src?: Route) {
-    const base = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'home_base'].includes(k))) : {}
-    const { data, error } = await supabase.from('routes').insert({ ...base, pup_id: pup, dop_id: dop, home_base: homeBase, copied_from: src?.id ?? null }).select().single()
-    if (error) return toast(error.code === '23505' ? `Tahle trasa už existuje${homeBase === 'NL' ? ' jako NL–NL' : ''}.` : explain(error), 'err')
-    if (src) {
-      const ps = prices.filter(p => p.route_id === src.id).map(p => ({ route_id: (data as Route).id, label: p.label, pup_dop_h: p.pup_dop_h, price: p.price, sort: p.sort }))
-      if (ps.length) await supabase.from('route_prices').insert(ps)
-    }
+    const { error } = await copyRoute(src, pup, dop, homeBase, prices)
+    if (error) return toast(error, 'err')
     toast(src ? `Trasa zkopírována z ${name(src.pup_id)} → ${name(src.dop_id)}. Zkontrolujte km a ceny.` : 'Trasa založena, doplňte úseky a ceny.')
     setCopyFrom(null); setNewPup(''); setNewDop(''); setNewNl(false); load()
   }

@@ -329,3 +329,4 @@ td.combi { white-space: nowrap; }
   input::placeholder { color: transparent; }
   .hoursgrid tr.detail > td { padding-left: 1rem; }
 }
+.totag { font-size: .7rem; font-weight: 700; color: #1a5fb4; border: 1px solid #8fb4e8; border-radius: 4px; padding: 0 .25rem; margin-left: .35rem; vertical-align: 1px; white-space: nowrap; }

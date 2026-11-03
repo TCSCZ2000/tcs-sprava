@@ -45,6 +45,7 @@ export interface Trip {
   home_at: string | null
   home_base: 'CZ' | 'NL'
   combi: boolean | null
+  takeover: boolean
 }
 export interface Customer { name: string; sort: number; active: boolean }
 export interface Route {
