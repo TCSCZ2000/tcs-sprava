@@ -66,10 +66,10 @@ export function suggestRoutes(pup: string, dop: string, from: string, to: string
 }
 
 // Založí trasu jako kopii jiné (úseky, sazby, pevné ceny); vrací chybu nebo null
-export async function copyRoute(src: Route | undefined, pup: string, dop: string, from: string, to: string, prices: RoutePrice[]): Promise<{ error: string | null; id?: string }> {
-  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'base_from', 'base_to'].includes(k))) : {}
-  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, copied_from: src?.id ?? null }).select().single()
-  if (error) return { error: error.code === '23505' ? 'Tahle trasa už existuje.' : error.message }
+export async function copyRoute(src: Route | undefined, pup: string, dop: string, from: string, to: string, prices: RoutePrice[], variant = ''): Promise<{ error: string | null; id?: string }> {
+  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'base_from', 'base_to', 'variant'].includes(k))) : {}
+  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, variant, copied_from: src?.id ?? null }).select().single()
+  if (error) return { error: error.code === '23505' ? (variant ? `Varianta „${variant}“ už u téhle trasy je.` : 'Tahle trasa už existuje. Pro další variantu (třeba „přes Francii“) vyplňte název varianty.') : error.message }
   if (src) {
     const ps = prices.filter(p => p.route_id === src.id).map(p => ({ route_id: (data as Route).id, label: p.label, pup_dop_h: p.pup_dop_h, price: p.price, sort: p.sort }))
     if (ps.length) await supabase.from('route_prices').insert(ps)

@@ -28,6 +28,7 @@ export default function Routes() {
   const [newDop, setNewDop] = useState('')
   const [newFrom, setNewFrom] = useState('CZ')
   const [newTo, setNewTo] = useState('CZ')
+  const [newVariant, setNewVariant] = useState('')
   const [showMissing, setShowMissing] = useState(true)
 
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
@@ -47,7 +48,7 @@ export default function Routes() {
   const name = (id: string) => placeBy.get(id)?.name ?? '?'
   const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
   const routeKey = (pup: string, dop: string, from: string, to: string) => `${pup}|${dop}|${from}|${to}`
-  const routeBy = useMemo(() => new Map(routes.map(r => [routeKey(r.pup_id, r.dop_id, r.base_from, r.base_to), r])), [routes])
+  const routeBy = useMemo(() => new Map(routes.map(r => [routeKey(r.pup_id, r.dop_id, r.base_from, r.base_to), r])), [routes]) // libovolná varianta
 
   // Cesty, ke kterým chybí trasa → návrh kopie ze stejných měst
   const missing = useMemo(() => {
@@ -70,11 +71,11 @@ export default function Routes() {
     toast('Trasa založena z úseků, doplňte PUP→DOP (km, hodiny, mýto).'); load()
   }
 
-  async function createRoute(pup: string, dop: string, from: string, to: string, src?: Route) {
-    const { error } = await copyRoute(src, pup, dop, from, to, prices)
+  async function createRoute(pup: string, dop: string, from: string, to: string, src?: Route, variant = '') {
+    const { error } = await copyRoute(src, pup, dop, from, to, prices, variant)
     if (error) return toast(error, 'err')
     toast(src ? `Trasa zkopírována z ${name(src.pup_id)} → ${name(src.dop_id)}. Zkontrolujte km a ceny.` : 'Trasa založena, doplňte úseky a ceny.')
-    setCopyFrom(null); setNewPup(''); setNewDop(''); setNewFrom('CZ'); setNewTo('CZ'); load()
+    setCopyFrom(null); setNewPup(''); setNewDop(''); setNewFrom('CZ'); setNewTo('CZ'); setNewVariant(''); load()
   }
 
   async function resolvePlace(v: string): Promise<string | null> {
@@ -91,7 +92,7 @@ export default function Routes() {
   async function submitNew() {
     const pup = await resolvePlace(newPup), dop = await resolvePlace(newDop)
     if (!pup || !dop) return toast('Vyplňte Pup i Dop.', 'err')
-    createRoute(pup, dop, newFrom, newTo, copyFrom ?? undefined)
+    createRoute(pup, dop, newFrom, newTo, copyFrom ?? undefined, newVariant.trim())
   }
 
   async function saveRoute(r: Route, patch: Partial<Route>) {
@@ -133,7 +134,7 @@ export default function Routes() {
         const hay = fold(`${name(r.pup_id)} ${city(r.pup_id)} ${name(r.dop_id)} ${city(r.dop_id)}`)
         return words.every(w => hay.includes(w))
       })
-      .sort((a, b) => (name(a.pup_id) + name(a.dop_id)).localeCompare(name(b.pup_id) + name(b.dop_id)))
+      .sort((a, b) => (name(a.pup_id) + name(a.dop_id) + a.base_from + a.base_to + a.variant).localeCompare(name(b.pup_id) + name(b.dop_id) + b.base_from + b.base_to + b.variant, 'cs'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, q, places])
 
@@ -159,6 +160,7 @@ export default function Routes() {
           <span>→</span>
           <input className="search" list="dl-places" placeholder="Dop" value={newDop} onChange={e => setNewDop(e.target.value)} />
           <span className="quiet">odkud</span><BaseSelect value={newFrom} onChange={setNewFrom} /><span className="quiet">kam</span><BaseSelect value={newTo} onChange={setNewTo} />
+          <input className="search" style={{ minWidth: '8rem', flex: '0 1 10rem' }} placeholder="varianta (třeba přes Francii)" title="Vyplňte, když stejná trasa jede jinudy: přes Francii, přes Švýcarsko… Prázdné = základní varianta." value={newVariant} onChange={e => setNewVariant(e.target.value)} />
           <button className="primary" onClick={submitNew}>{copyFrom ? 'Zkopírovat' : 'Založit'}</button>
           {copyFrom && <button className="link" onClick={() => setCopyFrom(null)}>Zrušit kopírování</button>}
         </div>
@@ -196,7 +198,7 @@ export default function Routes() {
         <table className="grid plain routegrid">
           <thead>
             <tr>
-              <th rowSpan={2}>Pup</th><th rowSpan={2}>Dop</th>
+              <th rowSpan={2}>Pup</th><th rowSpan={2}>Dop</th><th rowSpan={2} title="Varianta stejné trasy, třeba přes Francii / přes Švýcarsko. Prázdné = základní. V Reportech a Planningu si u cesty vyberete, která platí.">Varianta</th>
               {LEGS.map(l => <th key={l.key} colSpan={3} className="legh">{l.label}</th>)}
               <th colSpan={3} className="legh">Celkem</th>
               <th rowSpan={2} title="Odkud posádka vyjíždí a kam se vrací. Výchozí CZ → CZ. Cesta v Planningu si vybere trasu se stejnou dvojicí.">Odkud / Kam</th><th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
@@ -210,6 +212,7 @@ export default function Routes() {
               <tr key={r.id} className={routeIncomplete(r) ? 'incomplete' : ''} title={routeIncomplete(r) ? 'Chybí úsek PUP→DOP' + (r.note ? '. ' + r.note : '') : r.note ?? undefined}>
                 <td className="ro">{name(r.pup_id)}</td>
                 <td className="ro">{name(r.dop_id)}{r.copied_from && <span className="quiet small" title="Zkopírováno z jiné trasy"> ⧉</span>}</td>
+                <td className="variantcell"><Text disabled={!canEdit} value={r.variant} placeholder="základní" onSave={v => saveRoute(r, { variant: v.trim() })} /></td>
                 {LEGS.map(l => [
                   <td key={l.key + 'k'}>{numCell(r, `${l.key}_km` as keyof Route)}</td>,
                   <td key={l.key + 'h'}>{numCell(r, `${l.key}_h` as keyof Route)}</td>,
@@ -231,7 +234,8 @@ export default function Routes() {
                 </td>
                 {canEdit && (
                   <td className="actions nowrap">
-                    <button className="link small" onClick={() => { setCopyFrom(r); setNewPup(name(r.pup_id)); setNewDop(''); setNewFrom(r.base_from); setNewTo(r.base_to); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Kopírovat</button>
+                    <button className="link small" onClick={() => { setCopyFrom(r); setNewPup(name(r.pup_id)); setNewDop(''); setNewFrom(r.base_from); setNewTo(r.base_to); setNewVariant(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Kopírovat</button>
+                    <button className="link small" title="Založí další variantu téhle trasy (stejný Pup, Dop i základny) se stejnými hodnotami k úpravě" onClick={() => { const v = window.prompt('Název varianty, třeba „přes Francii“')?.trim(); if (v) createRoute(r.pup_id, r.dop_id, r.base_from, r.base_to, r, v) }}>Varianta</button>
                     <button className="ghost" aria-label="Smazat trasu" onClick={() => removeRoute(r)}>×</button>
                   </td>
                 )}

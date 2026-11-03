@@ -1,11 +1,11 @@
-import type { Place, RouteTime, Trip } from './supabase'
+import { groupRoutes, pickRoute, tripRouteKey, type Place, type RouteTime, type Trip } from './supabase'
 import { addHoursIso, intervalToMinutes } from './format'
 
 // Doby jízdy z tras: přesná trasa (Pup, Dop, základna), nebo náhrada z jiné trasy se stejným Pup / Dop a základnou
-export type RouteIndex = { by: Map<string, RouteTime>; pupH: Map<string, number>; dopH: Map<string, number>; pupCityH: Map<string, number>; dopCityH: Map<string, number>; placeBy: Map<string, Place> }
+export type RouteIndex = { by: Map<string, RouteTime[]>; pupH: Map<string, number>; dopH: Map<string, number>; pupCityH: Map<string, number>; dopCityH: Map<string, number>; placeBy: Map<string, Place> }
 const cityOf = (placeBy: Map<string, Place>, id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
 export function buildRouteIndex(routeTimes: RouteTime[], placeBy: Map<string, Place> = new Map()): RouteIndex {
-  const by = new Map(routeTimes.map(r => [`${r.pup_id}|${r.dop_id}|${r.base_from}|${r.base_to}`, r]))
+  const by = groupRoutes(routeTimes)
   const pick = (key: 'pup_id' | 'dop_id', h: 'ho_pup_h' | 'dop_ho_h', byCity = false) => {
     const cnt = new Map<string, Map<number, number>>()
     for (const r of routeTimes) {
@@ -25,7 +25,7 @@ export const requestIso = (t: Trip) => t.trip_time ? `${t.trip_date}T${t.trip_ti
 
 // HO→PUP hodiny pro cestu: z trasy, jinak z jiné trasy ze stejného Pup; undefined = nic
 export function hoPupHours(t: Trip, idx: RouteIndex): { h: number; from: 'route' | 'pup' | 'city' } | undefined {
-  const rt = idx.by.get(`${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`)
+  const rt = pickRoute(t, idx.by.get(tripRouteKey(t)))
   if (rt?.ho_pup_h != null) return { h: Number(rt.ho_pup_h), from: 'route' }
   if (!rt && t.pup_id) {
     const h = idx.pupH.get(`${t.base_from}|${t.pup_id}`); if (h != null) return { h, from: 'pup' }
@@ -35,7 +35,7 @@ export function hoPupHours(t: Trip, idx: RouteIndex): { h: number; from: 'route'
   return undefined
 }
 export function dopHoHours(t: Trip, idx: RouteIndex): { h: number; from: 'route' | 'dop' | 'city' } | undefined {
-  const rt = idx.by.get(`${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`)
+  const rt = pickRoute(t, idx.by.get(tripRouteKey(t)))
   if (rt?.dop_ho_h != null) return { h: Number(rt.dop_ho_h), from: 'route' }
   if (!rt && t.dop_id) {
     const h = idx.dopH.get(`${t.base_to}|${t.dop_id}`); if (h != null) return { h, from: 'dop' }
@@ -65,3 +65,5 @@ export function plannedHomeIso(t: Trip, idx: RouteIndex): string | null {
   const dh = dopHoHours(t, idx)
   return dh ? addHoursIso(t.dep_dop, dh.h) : null
 }
+
+export const routeVariants = (t: Trip, idx: RouteIndex) => idx.by.get(tripRouteKey(t)) ?? []

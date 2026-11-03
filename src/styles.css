@@ -337,3 +337,5 @@ td.combi { white-space: nowrap; }
 td.basecell { white-space: nowrap; padding: 0 .2rem; color: var(--ink-2); }
 .w-base { width: 7rem; }
 .bases { margin-bottom: 1.5rem; } .bases .tablewrap { max-width: 40rem; }
+.variantcell .cell { min-width: 6rem; color: #1a5fb4; font-style: italic; }
+.variantsel { font-size: .75rem; border: 1px solid #8fb4e8; border-radius: 4px; color: #1a5fb4; background: var(--surface); max-width: 9rem; margin-left: .2rem; }

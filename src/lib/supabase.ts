@@ -43,6 +43,7 @@ export interface Trip {
   price_manual: number | null
   start_at: string | null
   home_at: string | null
+  route_id: string | null
   base_from: string
   base_to: string
   combi: boolean | null
@@ -54,11 +55,24 @@ export interface Route {
   ho_pup_km: number | null; ho_pup_h: number | null; ho_pup_toll: number | null
   pup_dop_km: number | null; pup_dop_h: number | null; pup_dop_toll: number | null
   dop_ho_km: number | null; dop_ho_h: number | null; dop_ho_toll: number | null
-  rate_h: number; rate_km: number; note: string | null; copied_from: string | null; base_from: string; base_to: string; updated_at: string
+  rate_h: number; rate_km: number; note: string | null; copied_from: string | null; base_from: string; base_to: string; variant: string; updated_at: string
 }
 export interface RoutePrice { id: string; route_id: string; label: string; pup_dop_h: number | null; price: number; sort: number }
 
-export type RouteTime = { pup_id: string; dop_id: string; ho_pup_h: number | null; dop_ho_h: number | null; base_from: string; base_to: string }
+export type RouteTime = { id: string; pup_id: string; dop_id: string; ho_pup_h: number | null; dop_ho_h: number | null; base_from: string; base_to: string; variant: string }
+// Varianty trasy pro cestu (stejný Pup, Dop, základny) a výběr té, která platí: zvolená, jinak základní (bez názvu), jinak první
+export const tripRouteKey = (t: Pick<Trip, 'pup_id' | 'dop_id' | 'base_from' | 'base_to'>) => `${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`
+export function groupRoutes<R extends { pup_id: string; dop_id: string; base_from: string; base_to: string; variant: string }>(list: R[]) {
+  const m = new Map<string, R[]>()
+  for (const r of list) { const k = `${r.pup_id}|${r.dop_id}|${r.base_from}|${r.base_to}`; if (!m.has(k)) m.set(k, []); m.get(k)!.push(r) }
+  for (const v of m.values()) v.sort((a, b) => a.variant.localeCompare(b.variant, 'cs'))
+  return m
+}
+export function pickRoute<R extends { id: string; variant: string }>(t: Pick<Trip, 'route_id'>, variants: R[] | undefined): R | undefined {
+  if (!variants?.length) return undefined
+  return (t.route_id && variants.find(r => r.id === t.route_id)) || variants.find(r => r.variant === '') || variants[0]
+}
+export const variantLabel = (v: string) => v || 'základní'
 export interface Base { code: string; name: string; sort: number }
 export const baseLabel = (from: string, to: string) => from === 'CZ' && to === 'CZ' ? '' : `${from} → ${to}`
 export interface HoursExtra { id: string; person_id: string; work_date: string; kind: 'mimo' | 'pevne'; hours: number; note: string | null }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
-import { baseLabel } from '../lib/supabase'
+import { baseLabel, groupRoutes, pickRoute, tripRouteKey, variantLabel } from '../lib/supabase'
 import { composeRoute, copyRoute, createComposedRoute, eur, routeIncomplete, suggestRoutes, tripPrice, type LegPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
@@ -45,7 +45,7 @@ export default function Reports() {
     toast(`Trasa založena z úseků. Doplňte PUP→DOP v Trasách a cenách (km, hodiny, mýto).`)
     loadRoutes()
   }
-  const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}|${r.base_from}|${r.base_to}`, r])), [routes])
+  const routeBy = useMemo(() => groupRoutes(routes), [routes])
   const [trips, setTrips] = useState<Trip[]>([])
   const [showDone, setShowDone] = useState(true)
   const [doneMonth, setDoneMonth] = useState(todayIso().slice(0, 7))
@@ -114,11 +114,11 @@ export default function Reports() {
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Základna odkud', 'Základna kam', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Základna odkud', 'Základna kam', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, t.arr_dop)
-      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`)
+      const route = pickRoute(t, routeBy.get(tripRouteKey(t)))
       const pr = seePrice ? tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && t.dep_dop ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) ?? '0').replace(',', '.')) : null) : null
       const links = byNext.get(t.id) ?? []
       body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs,
@@ -127,7 +127,7 @@ export default function Reports() {
         carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no,
         ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
         t.combi === true ? 'ano' : t.combi === false ? 'ne' : links.some(l => l.kind === 'auto' || l.kind === 'overlap') ? 'navrženo' : '',
-        pr?.how, pr?.price, t.report_note, t.status])
+        route ? variantLabel(route.variant) : '', pr?.how, pr?.price, t.report_note, t.status])
     }
     exportXlsx(`reporty_${showDone ? doneMonth : todayIso()}`, [{ name: 'Reporty', rows: [head, ...body] }])
   }
@@ -222,7 +222,8 @@ export default function Reports() {
                       onSave={v => { const n = num(v); if (n === undefined) return toast('Hodiny pište jako číslo, třeba 14,5.', 'err'); save(t, { hours_manual: n }) }} /></td>
                     <td className="combi">{combiCell(t, byNext.get(t.id) ?? [], ed, v => save(t, { combi: v }), personBy)}</td>
                     {seePrice && (() => {
-                      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`)
+                      const variants = routeBy.get(tripRouteKey(t)) ?? []
+                      const route = pickRoute(t, variants)
                       const opts = route ? rprices.filter(p => p.route_id === route.id) : []
                       const rq = t.trip_time ? hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) : null
                       const reqH = rq ? Number(rq.replace(',', '.')) : null
@@ -230,6 +231,12 @@ export default function Reports() {
                       const auto = tripPrice({ ...t, price_manual: null }, route, rprices, total ? Number(total.replace(',', '.')) : null, reqH)
                       return <>
                         <td>
+                          {variants.length > 1 && (
+                            <select className="variantsel" disabled={!ed} value={route?.id ?? ''} title="Varianta trasy (přes Francii, přes Švýcarsko…). Platí pro cenu i pro Start a Home v Planningu."
+                              onChange={e => save(t, { route_id: e.target.value || null })}>
+                              {variants.map(v => <option key={v.id} value={v.id}>{variantLabel(v.variant)}</option>)}
+                            </select>
+                          )}
                           {t.price_manual != null
                             ? <span className="ro manualprice">ručně {ed && <button className="link small" onClick={() => save(t, { price_manual: null })} title="Zrušit ruční cenu a počítat znovu">zrušit</button>}</span>
                             : route
