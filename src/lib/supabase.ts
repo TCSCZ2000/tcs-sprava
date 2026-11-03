@@ -55,16 +55,19 @@ export interface Route {
   ho_pup_km: number | null; ho_pup_h: number | null; ho_pup_toll: number | null
   pup_dop_km: number | null; pup_dop_h: number | null; pup_dop_toll: number | null
   dop_ho_km: number | null; dop_ho_h: number | null; dop_ho_toll: number | null
-  rate_h: number; rate_km: number; note: string | null; copied_from: string | null; base_from: string; base_to: string; variant: string; updated_at: string
+  rate_h: number; rate_km: number; note: string | null; copied_from: string | null; base_from: string; base_to: string; variant: string; stops: string[]; updated_at: string
 }
 export interface RoutePrice { id: string; route_id: string; label: string; pup_dop_h: number | null; price: number; sort: number }
 
-export type RouteTime = { id: string; pup_id: string; dop_id: string; ho_pup_h: number | null; dop_ho_h: number | null; base_from: string; base_to: string; variant: string }
+export type RouteTime = { id: string; pup_id: string; dop_id: string; ho_pup_h: number | null; dop_ho_h: number | null; base_from: string; base_to: string; variant: string; stops: string[] }
+export interface TripStop { id: string; trip_id: string; seq: number; place_id: string; arr: string | null; dep: string | null; km: number | null; note: string | null }
+export type StopsMap = Map<string, TripStop[]>
 // Varianty trasy pro cestu (stejný Pup, Dop, základny) a výběr té, která platí: zvolená, jinak základní (bez názvu), jinak první
-export const tripRouteKey = (t: Pick<Trip, 'pup_id' | 'dop_id' | 'base_from' | 'base_to'>) => `${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`
-export function groupRoutes<R extends { pup_id: string; dop_id: string; base_from: string; base_to: string; variant: string }>(list: R[]) {
+export const routeKeyOf = (pup: string | null, dop: string | null, from: string, to: string, stops: string[] = []) => `${pup}|${dop}|${from}|${to}|${stops.join(',')}`
+export const tripRouteKey = (t: Pick<Trip, 'pup_id' | 'dop_id' | 'base_from' | 'base_to'>, stops: TripStop[] = []) => routeKeyOf(t.pup_id, t.dop_id, t.base_from, t.base_to, stops.map(s => s.place_id))
+export function groupRoutes<R extends { pup_id: string; dop_id: string; base_from: string; base_to: string; variant: string; stops: string[] }>(list: R[]) {
   const m = new Map<string, R[]>()
-  for (const r of list) { const k = `${r.pup_id}|${r.dop_id}|${r.base_from}|${r.base_to}`; if (!m.has(k)) m.set(k, []); m.get(k)!.push(r) }
+  for (const r of list) { const k = routeKeyOf(r.pup_id, r.dop_id, r.base_from, r.base_to, r.stops); if (!m.has(k)) m.set(k, []); m.get(k)!.push(r) }
   for (const v of m.values()) v.sort((a, b) => a.variant.localeCompare(b.variant, 'cs'))
   return m
 }
@@ -76,3 +79,16 @@ export const variantLabel = (v: string) => v || 'základní'
 export interface Base { code: string; name: string; sort: number }
 export const baseLabel = (from: string, to: string) => from === 'CZ' && to === 'CZ' ? '' : `${from} → ${to}`
 export interface HoursExtra { id: string; person_id: string; work_date: string; kind: 'mimo' | 'pevne'; hours: number; note: string | null }
+
+// Vykládky cesty: Dop (první) + další v trip_stops; konec práce = odjezd z poslední vykládky
+export const stopsOf = (t: Pick<Trip, 'id'>, stops: StopsMap) => stops.get(t.id) ?? []
+export const lastDropId = (t: Pick<Trip, 'id' | 'dop_id'>, stops: StopsMap) => { const s = stopsOf(t, stops); return s.length ? s[s.length - 1].place_id : t.dop_id }
+export const jobEnd = (t: Pick<Trip, 'id' | 'dep_dop'>, stops: StopsMap) => { const s = stopsOf(t, stops); return s.length ? (s[s.length - 1].dep ?? null) : t.dep_dop }
+export async function loadStops(tripIds: string[]): Promise<StopsMap> {
+  const m: StopsMap = new Map()
+  for (let i = 0; i < tripIds.length; i += 200) {
+    const { data } = await supabase.from('trip_stops').select('*').in('trip_id', tripIds.slice(i, i + 200)).order('seq')
+    for (const s of (data as TripStop[]) ?? []) { if (!m.has(s.trip_id)) m.set(s.trip_id, []); m.get(s.trip_id)!.push(s) }
+  }
+  return m
+}

@@ -50,12 +50,14 @@ export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[
 }
 
 // Podobné trasy: stejné Pup / Dop, nebo stejné město (KN Frankfurt ~ CHI Frankfurt), stejná základna
-export function suggestRoutes(pup: string, dop: string, from: string, to: string, routes: Route[], placeBy: Map<string, Place>): { route: Route; why: string }[] {
+export function suggestRoutes(pup: string, dop: string, from: string, to: string, routes: Route[], placeBy: Map<string, Place>, stops: string[] = []): { route: Route; why: string }[] {
   const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
   const pc = city(pup), dc = city(dop)
   const out: { route: Route; why: string; score: number }[] = []
   for (const r of routes) {
     if (r.base_from !== from || r.base_to !== to) continue
+    // stejné další vykládky (stejné místo nebo stejné město)
+    if (r.stops.length !== stops.length || !r.stops.every((s, i) => s === stops[i] || (!!city(s) && city(s) === city(stops[i])))) continue
     const samePup = r.pup_id === pup, sameDop = r.dop_id === dop
     const pupCity = !!pc && city(r.pup_id) === pc, dopCity = !!dc && city(r.dop_id) === dc
     if ((samePup || pupCity) && (sameDop || dopCity) && !(samePup && sameDop)) {
@@ -66,9 +68,9 @@ export function suggestRoutes(pup: string, dop: string, from: string, to: string
 }
 
 // Založí trasu jako kopii jiné (úseky, sazby, pevné ceny); vrací chybu nebo null
-export async function copyRoute(src: Route | undefined, pup: string, dop: string, from: string, to: string, prices: RoutePrice[], variant = ''): Promise<{ error: string | null; id?: string }> {
-  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'base_from', 'base_to', 'variant'].includes(k))) : {}
-  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, variant, copied_from: src?.id ?? null }).select().single()
+export async function copyRoute(src: Route | undefined, pup: string, dop: string, from: string, to: string, prices: RoutePrice[], variant = '', stops: string[] = []): Promise<{ error: string | null; id?: string }> {
+  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'base_from', 'base_to', 'variant', 'stops'].includes(k))) : {}
+  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, variant, stops, copied_from: src?.id ?? null }).select().single()
   if (error) return { error: error.code === '23505' ? (variant ? `Varianta „${variant}“ už u téhle trasy je.` : 'Tahle trasa už existuje. Pro další variantu (třeba „přes Francii“) vyplňte název varianty.') : error.message }
   if (src) {
     const ps = prices.filter(p => p.route_id === src.id).map(p => ({ route_id: (data as Route).id, label: p.label, pup_dop_h: p.pup_dop_h, price: p.price, sort: p.sort }))
@@ -80,7 +82,8 @@ export async function copyRoute(src: Route | undefined, pup: string, dop: string
 // Složení trasy z hotových úseků: HO→PUP z jiné trasy ze stejného Pup (nebo města), DOP→HO z jiné trasy na stejný Dop (nebo město).
 // PUP→DOP zůstane prázdný k doplnění.
 export type LegPick = { route: Route; why: string }
-export function composeRoute(pup: string, dop: string, from: string, to: string, routes: Route[], placeBy: Map<string, Place>): { ho: LegPick | null; dh: LegPick | null } {
+export type MidPick = { km: number; h: number | null; toll: number; parts: string[] }
+export function composeRoute(pup: string, dop: string, from: string, to: string, routes: Route[], placeBy: Map<string, Place>, stops: string[] = []): { ho: LegPick | null; dh: LegPick | null; mid: MidPick | null } {
   const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
   const name = (id: string) => placeBy.get(id)?.name ?? '?'
   const pick = (key: 'pup_id' | 'dop_id', id: string, h: 'ho_pup_h' | 'dop_ho_h', km: 'ho_pup_km' | 'dop_ho_km'): LegPick | null => {
@@ -92,16 +95,33 @@ export function composeRoute(pup: string, dop: string, from: string, to: string,
     if (same[0]) return { route: same[0], why: `${name(same[0].pup_id)} → ${name(same[0].dop_id)} (stejné město ${placeBy.get(id)?.city})` }
     return null
   }
-  return { ho: pick('pup_id', pup, 'ho_pup_h', 'ho_pup_km'), dh: pick('dop_id', dop, 'dop_ho_h', 'dop_ho_km') }
+  const last = stops.length ? stops[stops.length - 1] : dop
+  // PUP→DOP u více vykládek: součet úseků PUP→DOP z tras mezi po sobě jdoucími místy (Pup→Dop1, Dop1→Dop2 …), bez ohledu na základnu
+  let mid: MidPick | null = null
+  if (stops.length) {
+    const chain = [pup, dop, ...stops]
+    const acc: MidPick = { km: 0, h: 0, toll: 0, parts: [] }
+    let ok = true
+    for (let i = 0; i < chain.length - 1 && ok; i++) {
+      const leg = routes.filter(r => r.pup_id === chain[i] && r.dop_id === chain[i + 1] && !r.stops.length && (r.pup_dop_km != null || r.pup_dop_h != null))
+        .sort((a, b) => (a.variant ? 1 : 0) - (b.variant ? 1 : 0))[0]
+      if (!leg) { ok = false; break }
+      acc.km += Number(leg.pup_dop_km ?? 0); acc.h = leg.pup_dop_h == null ? acc.h : (acc.h ?? 0) + Number(leg.pup_dop_h); acc.toll += Number(leg.pup_dop_toll ?? 0)
+      acc.parts.push(`${name(chain[i])} → ${name(chain[i + 1])}`)
+    }
+    mid = ok ? acc : null
+  }
+  return { ho: pick('pup_id', pup, 'ho_pup_h', 'ho_pup_km'), dh: pick('dop_id', last, 'dop_ho_h', 'dop_ho_km'), mid }
 }
 
-export async function createComposedRoute(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null): Promise<{ error: string | null }> {
+export async function createComposedRoute(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null, stops: string[] = [], mid: MidPick | null = null): Promise<{ error: string | null }> {
   const src = ho?.route ?? dh?.route
-  const vals: Partial<Route> = { rate_h: src?.rate_h ?? 10, rate_km: src?.rate_km ?? 0.28 }
+  const vals: Partial<Route> = { rate_h: src?.rate_h ?? 10, rate_km: src?.rate_km ?? 0.28, stops }
+  if (mid) Object.assign(vals, { pup_dop_km: mid.km, pup_dop_h: mid.h, pup_dop_toll: mid.toll })
   if (ho) Object.assign(vals, { ho_pup_km: ho.route.ho_pup_km, ho_pup_h: ho.route.ho_pup_h, ho_pup_toll: ho.route.ho_pup_toll })
   if (dh) Object.assign(vals, { dop_ho_km: dh.route.dop_ho_km, dop_ho_h: dh.route.dop_ho_h, dop_ho_toll: dh.route.dop_ho_toll })
   const { error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, copied_from: src?.id ?? null,
-    note: `Složeno z úseků: ${from}→PUP ${ho ? 'z ' + ho.why : 'chybí'}; DOP→${to} ${dh ? 'z ' + dh.why : 'chybí'}. Doplňte PUP→DOP.` })
+    note: `Složeno z úseků: ${from}→PUP ${ho ? 'z ' + ho.why : 'chybí'}; ${mid ? 'PUP→DOP součet ' + mid.parts.join(' + ') + '; ' : ''}DOP→${to} ${dh ? 'z ' + dh.why : 'chybí'}.${mid ? '' : ' Doplňte PUP→DOP.'}` })
   if (error) return { error: error.code === '23505' ? 'Tahle trasa už existuje.' : error.message }
   return { error: null }
 }

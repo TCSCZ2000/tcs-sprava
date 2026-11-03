@@ -7,7 +7,7 @@ import { dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from
 import { BaseSelect } from '../lib/BaseSelect'
 import { baseLabel } from '../lib/supabase'
 import { buildRouteIndex, dopHoHours, hoPupHours, plannedHomeIso, plannedStartIso, requestIso, routeVariants } from '../lib/planned'
-import { pickRoute } from '../lib/supabase'
+import { jobEnd, loadStops, pickRoute, stopsOf, type StopsMap, type TripStop } from '../lib/supabase'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
@@ -35,6 +35,7 @@ export default function Plan() {
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
   const [loaded, setLoaded] = useState(false)
+  const [stops, setStops] = useState<StopsMap>(new Map())
   const [carFilter, setCarFilter] = useState<string | null>(null)
   const [fleetOpen, setFleetOpen] = useState(true)
   const [view, setView] = usePref<'days' | 'list' | 'customers'>('plan.view', 'days')
@@ -73,6 +74,7 @@ export default function Plan() {
       if (error) toast(explain(error), 'err')
       setTrips((data as Trip[]) ?? [])
       setLoaded(true)
+      loadStops(((data as Trip[]) ?? []).map(t => t.id)).then(setStops)
     })
   }, [from, to, hist, toast])
 
@@ -89,6 +91,10 @@ export default function Plan() {
           if (i === -1) return [...cur, row]
           const next = cur.slice(); next[i] = row; return next
         })
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_stops' }, payload => {
+        const tid = ((payload.new as TripStop)?.trip_id ?? (payload.old as TripStop)?.trip_id)
+        if (tid) loadStops([tid]).then(m => setStops(cur => { const n = new Map(cur); n.set(tid, m.get(tid) ?? []); return n }))
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -143,6 +149,19 @@ export default function Plan() {
     return (data as { id: string }).id
   }
 
+  // Další vykládky: „Dop 2, Dop 3“ → řádky v trip_stops (časy a km z reportu zůstanou u míst, která se nezměnila)
+  async function saveStops(t: Trip, v: string) {
+    const names = v.split(',').map(s => s.trim()).filter(Boolean)
+    const ids: string[] = []
+    for (const n of names) { const id = await resolvePlace(n); if (!id) return; ids.push(id) }
+    const old = stopsOf(t, stops)
+    const rows = ids.map((place_id, i) => { const prev = old.find(s => s.place_id === place_id); return { trip_id: t.id, seq: i + 2, place_id, arr: prev?.arr ?? null, dep: prev?.dep ?? null, km: prev?.km ?? null, note: prev?.note ?? null } })
+    const del = await supabase.from('trip_stops').delete().eq('trip_id', t.id)
+    if (del.error) return toast(explain(del.error), 'err')
+    if (rows.length) { const ins = await supabase.from('trip_stops').insert(rows); if (ins.error) return toast(explain(ins.error), 'err') }
+    const m = await loadStops([t.id]); setStops(cur => { const n = new Map(cur); n.set(t.id, m.get(t.id) ?? []); return n })
+  }
+
   // Dvojí přiřazení stejného dne
   const clashes = useMemo(() => {
     const seen = new Map<string, number>()
@@ -169,14 +188,14 @@ export default function Plan() {
       .filter(t => {
         if (!s) return true
         const hay = [
-          placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name,
+          placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, ...stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name),
           ...GUARDS.map(g => personBy.get(t[g] ?? '')?.short_name),
           carBy.get(t.car_id ?? '')?.label, t.ref_tcs, t.remarks,
         ].join(' ').toLowerCase()
         return hay.includes(s)
       })
       .sort((a, b) => (a.trip_date + (a.trip_time ?? '')).localeCompare(b.trip_date + (b.trip_time ?? '')))
-  }, [trips, hidden, hiddenCust, q, placeBy, personBy, carBy, from, to, carFilter, hist])
+  }, [trips, hidden, hiddenCust, q, placeBy, personBy, carBy, from, to, carFilter, hist, stops])
 
   const days = useMemo(() => {
     if (view === 'list') return [['all', visible] as [string, Trip[]]]
@@ -206,13 +225,13 @@ export default function Plan() {
   const fleet = cars.filter(c => inPlanning(c, carCategories))
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Status', 'Ref. TCS', 'Zákazník', 'Pup', 'Dop', 'Guard 1', 'Guard 2', 'Guard 3', 'Auto', 'Odkud auto', 'Základna odkud', 'Základna kam', 'Take-over', 'Start', 'Konec Dop', 'Home', 'Poznámka', 'Změna']
+    const head: Cell[] = ['Datum', 'Čas', 'Status', 'Ref. TCS', 'Zákazník', 'Pup', 'Dop', 'Další Dop', 'Guard 1', 'Guard 2', 'Guard 3', 'Auto', 'Odkud auto', 'Základna odkud', 'Základna kam', 'Take-over', 'Start', 'Konec Dop', 'Home', 'Poznámka', 'Změna']
     const rows: Cell[][] = visible.map(t => [
       t.trip_date.split('-').reverse().join('.'), hm(t.trip_time), t.status, t.ref_tcs, t.customer,
-      placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name,
+      placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name).join(', '),
       ...GUARDS.map(g => personBy.get(t[g] ?? '')?.short_name), carBy.get(t.car_id ?? '')?.label,
       t.car_origin === 'Jiné' ? t.car_origin_other : t.car_origin, t.base_from, t.base_to, t.takeover ? 'ano' : '',
-      t.start_at ? fmtDT(t.start_at) : '', fmtDT(t.dep_dop), t.home_at ? fmtDT(t.home_at) : '', t.remarks, t.crew_change,
+      t.start_at ? fmtDT(t.start_at) : '', fmtDT(jobEnd(t, stops)), t.home_at ? fmtDT(t.home_at) : '', t.remarks, t.crew_change,
     ])
     exportXlsx(`planning_${hist ? 'historie_' : ''}${todayIso()}`, [{ name: hist ? 'Historie' : 'Planning', rows: [head, ...rows] }])
   }
@@ -290,7 +309,7 @@ export default function Plan() {
         <table className="grid">
           <thead>
             <tr>
-              <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th>
+              <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th><th title="Další vykládky po Dop: Dop 2, Dop 3 … Pište názvy oddělené čárkou.">Další Dop</th>
               <th>Guard 1</th><th>Guard 2</th><th>Guard 3</th><th>Auto</th><th>Odkud</th>
               <th className="w-ref">Ref. TCS</th><th className="w-base" title="Základna: odkud posádka vyjíždí → kam se vrací (CZ, NL, …). Spravuje se v Místech.">Odkud→Kam</th><th className="w-nl" title="Take-over: cestu přebíráme od cizí posádky. Propíše se do Reportů.">T-O</th><th className="w-dt" title="Čas − Odkud→PUP z trasy (nebo doba jízdy v Místech). Kliknutím přepíšete ručně.">Start</th><th className="w-dt" title="Kdy posádka skončila na Dop (= Odjezd Dop v reportu). Pište 9:45 nebo 3.11. 9:45.">Konec Dop</th><th className="w-dt" title="Konec Dop + DOP→Kam z trasy, nahoru na čtvrthodiny. Kliknutím přepíšete ručně.">Home</th><th>Poznámka</th><th>Změna</th>
               {canCreate && <th className="w-x" aria-label="Akce" />}
@@ -299,13 +318,13 @@ export default function Plan() {
           {days.map(([date, rows]) => (
             <tbody key={date}>
               {view === 'customers' && <tr className="dayrow">
-                <td colSpan={canCreate ? 20 : 19}>
+                <td colSpan={canCreate ? 21 : 20}>
                   <span className="daylabel">{date === NO_CUSTOMER ? 'Bez zákazníka' : date}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
               </tr>}
               {view === 'days' && <tr className="dayrow">
-                <td colSpan={canCreate ? 20 : 19}>
+                <td colSpan={canCreate ? 21 : 20}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
@@ -315,18 +334,20 @@ export default function Plan() {
                 const pup = placeBy.get(t.pup_id ?? '')
                 const car = carBy.get(t.car_id ?? '')
                 const nl = baseLabel(t.base_from, t.base_to)
-                const variants = routeVariants(t, ridx)
+                const variants = routeVariants(t, ridx, stops)
                 const chosen = pickRoute(t, variants)
                 const reqIso = requestIso(t)
                 // Start: ručně > čas − HO→PUP z tras > doba jízdy v Místech
-                const hp = hoPupHours(t, ridx)
-                const startIso = plannedStartIso(t, ridx, placeBy)
+                const hp = hoPupHours(t, ridx, stops)
+                const startIso = plannedStartIso(t, ridx, placeBy, stops)
                 const start = pup?.ferry && !t.start_at && !hp ? 'ferry' : fmtRel(startIso, t.trip_date)
                 const startHow = t.start_at ? 'Zadáno ručně' : hp ? `${t.base_from}→PUP ${hp.h} h ${hp.from === 'route' ? `z trasy${chosen?.variant ? ` (varianta ${chosen.variant})` : variants.length > 1 ? ' (základní varianta, upřesní se v Reportech)' : ''}` : hp.from === 'pup' ? 'z jiné trasy ze stejného Pup' : 'z trasy ze stejného města'}${nl ? ` (${nl})` : ''}` : pup?.travel_time ? 'Z doby jízdy v Místech (žádná trasa z tohoto Pup nemá Odkud→PUP)' : 'Chybí trasa i doba jízdy'
                 // Home: ručně > konec Dop + DOP→HO z tras
-                const dh = dopHoHours(t, ridx)
-                const home = fmtRel(plannedHomeIso(t, ridx), t.trip_date)
-                const homeHow = t.home_at ? 'Zadáno ručně' : home ? `Konec Dop + DOP→${t.base_to} ${dh!.h} h ${dh!.from === 'route' ? 'z trasy' : dh!.from === 'dop' ? 'z jiné trasy na stejný Dop' : 'z trasy do stejného města'}${nl ? ` (${nl})` : ''}` : !t.dep_dop ? 'Vyplňte Konec Dop' : 'Žádná trasa na tento Dop nemá DOP→Kam'
+                const dh = dopHoHours(t, ridx, stops)
+                const home = fmtRel(plannedHomeIso(t, ridx, stops), t.trip_date)
+                const tstops = stopsOf(t, stops)
+                const endIso = jobEnd(t, stops)
+                const homeHow = t.home_at ? 'Zadáno ručně' : home ? `Konec Dop + DOP→${t.base_to} ${dh!.h} h ${dh!.from === 'route' ? 'z trasy' : dh!.from === 'dop' ? 'z jiné trasy na stejný Dop' : 'z trasy do stejného města'}${nl ? ` (${nl})` : ''}` : !endIso ? (tstops.length ? 'Vyplňte Konec Dop (odjezd z poslední vykládky)' : 'Vyplňte Konec Dop') : 'Žádná trasa na tento Dop nemá DOP→Kam'
                 const saveDT = (key: 'start_at' | 'dep_dop' | 'home_at', v: string, base: string) => {
                   const r = parseDT(v, base, key !== 'start_at')
                   if (r === undefined) return toast('Čas zapište jako 9:45 nebo 3.11. 9:45.', 'err')
@@ -367,6 +388,8 @@ export default function Plan() {
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { pup_id: id }) }} /></td>
                     <td><Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} /></td>
+                    <td><Text disabled={!canRoute} list="dl-places" value={stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name ?? '?').join(', ')} wide placeholder="–"
+                      onSave={v => saveStops(t, v)} /></td>
                     {GUARDS.map(g => {
                       const p = personBy.get(t[g] ?? '')
                       const d = p ? docState(docs.get(p.id)?.passport_valid_to ?? null) : null
@@ -426,13 +449,19 @@ export default function Plan() {
                       <Text disabled={!canRoute} value={start} time mono placeholder="–"
                         onSave={v => v.trim() ? saveDT('start_at', v, reqIso ?? `${t.trip_date}T00:00:00`) : save(t, { start_at: null })} />
                     </td>
-                    <td className="start" title={t.dep_dop ? fmtDT(t.dep_dop) : undefined}>
-                      <Text disabled={!canRoute} value={fmtRel(t.dep_dop, t.trip_date)} time mono placeholder="–"
-                        onSave={v => v.trim() ? saveDT('dep_dop', v, reqIso ?? `${t.trip_date}T00:00:00`) : save(t, { dep_dop: null })} />
+                    <td className="start" title={endIso ? fmtDT(endIso) + (tstops.length ? ' (odjezd z poslední vykládky)' : '') : tstops.length ? 'Odjezd z poslední vykládky' : undefined}>
+                      <Text disabled={!canRoute} value={fmtRel(endIso, t.trip_date)} time mono placeholder="–"
+                        onSave={v => {
+                          const last = tstops[tstops.length - 1]
+                          if (!last) return v.trim() ? saveDT('dep_dop', v, reqIso ?? `${t.trip_date}T00:00:00`) : save(t, { dep_dop: null })
+                          const r = v.trim() ? parseDT(v, last.arr ?? t.dep_dop ?? reqIso ?? `${t.trip_date}T00:00:00`, true) : null
+                          if (r === undefined) return toast('Čas zapište jako 9:45 nebo 3.11. 9:45.', 'err')
+                          supabase.from('trip_stops').update({ dep: r }).eq('id', last.id).then(({ error }) => { if (error) toast(explain(error), 'err') })
+                        }} />
                     </td>
                     <td className={'start' + (t.home_at ? ' manual' : '')} title={homeHow}>
                       <Text disabled={!canRoute} value={home} time mono placeholder="–"
-                        onSave={v => v.trim() ? saveDT('home_at', v, t.dep_dop ?? reqIso ?? `${t.trip_date}T00:00:00`) : save(t, { home_at: null })} />
+                        onSave={v => v.trim() ? saveDT('home_at', v, endIso ?? reqIso ?? `${t.trip_date}T00:00:00`) : save(t, { home_at: null })} />
                     </td>
                     <td><Text disabled={!canNotes} value={t.remarks ?? ''} wide onSave={v => save(t, { remarks: v || null })} /></td>
                     <td className="change">

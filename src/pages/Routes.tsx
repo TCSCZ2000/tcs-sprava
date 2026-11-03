@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { BaseSelect } from '../lib/BaseSelect'
-import { baseLabel } from '../lib/supabase'
-import { LEGS, composeRoute, copyRoute, createComposedRoute, routeIncomplete, suggestRoutes, totalH, totalKm, totalToll, type LegPick } from '../lib/routes'
+import { baseLabel, loadStops, routeKeyOf, type StopsMap } from '../lib/supabase'
+import { LEGS, composeRoute, copyRoute, createComposedRoute, routeIncomplete, suggestRoutes, totalH, totalKm, totalToll, type LegPick, type MidPick } from '../lib/routes'
 import { todayIso } from '../lib/format'
 import { Text } from './Plan'
 
@@ -29,6 +29,7 @@ export default function Routes() {
   const [newFrom, setNewFrom] = useState('CZ')
   const [newTo, setNewTo] = useState('CZ')
   const [newVariant, setNewVariant] = useState('')
+  const [stops, setStops] = useState<StopsMap>(new Map())
   const [showMissing, setShowMissing] = useState(true)
 
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
@@ -42,37 +43,37 @@ export default function Routes() {
     ])
     if (r.error) toast(explain(r.error), 'err')
     setRoutes((r.data as Route[]) ?? []); setPrices((p.data as RoutePrice[]) ?? []); setTrips((t.data as Trip[]) ?? [])
+    setStops(await loadStops(((t.data as Trip[]) ?? []).map(x => x.id)))
   }, [toast])
   useEffect(() => { load() }, [load])
 
   const name = (id: string) => placeBy.get(id)?.name ?? '?'
   const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
-  const routeKey = (pup: string, dop: string, from: string, to: string) => `${pup}|${dop}|${from}|${to}`
-  const routeBy = useMemo(() => new Map(routes.map(r => [routeKey(r.pup_id, r.dop_id, r.base_from, r.base_to), r])), [routes]) // libovolná varianta
+  const routeKey = (pup: string, dop: string, from: string, to: string, st: string[] = []) => routeKeyOf(pup, dop, from, to, st)
+  const routeBy = useMemo(() => new Map(routes.map(r => [routeKey(r.pup_id, r.dop_id, r.base_from, r.base_to, r.stops), r])), [routes]) // libovolná varianta
 
   // Cesty, ke kterým chybí trasa → návrh kopie ze stejných měst
   const missing = useMemo(() => {
-    const seen = new Map<string, { pup: string; dop: string; from: string; to: string; count: number }>()
+    const seen = new Map<string, { pup: string; dop: string; from: string; to: string; st: string[]; count: number }>()
     for (const t of trips) {
-      if (!t.pup_id || !t.dop_id || routeBy.has(routeKey(t.pup_id, t.dop_id, t.base_from, t.base_to))) continue
-      const k = routeKey(t.pup_id, t.dop_id, t.base_from, t.base_to)
-      const cur = seen.get(k) ?? { pup: t.pup_id, dop: t.dop_id, from: t.base_from, to: t.base_to, count: 0 }
+      const st = (stops.get(t.id) ?? []).map(s => s.place_id)
+      if (!t.pup_id || !t.dop_id || routeBy.has(routeKey(t.pup_id, t.dop_id, t.base_from, t.base_to, st))) continue
+      const k = routeKey(t.pup_id, t.dop_id, t.base_from, t.base_to, st)
+      const cur = seen.get(k) ?? { pup: t.pup_id, dop: t.dop_id, from: t.base_from, to: t.base_to, st, count: 0 }
       cur.count++; seen.set(k, cur)
     }
-    return [...seen.values()].map(m => ({ ...m, suggestions: suggest(m.pup, m.dop, m.from, m.to), comp: composeRoute(m.pup, m.dop, m.from, m.to, routes, placeBy) })).sort((a, b) => b.count - a.count)
+    return [...seen.values()].map(m => ({ ...m, suggestions: suggestRoutes(m.pup, m.dop, m.from, m.to, routes, placeBy, m.st), comp: composeRoute(m.pup, m.dop, m.from, m.to, routes, placeBy, m.st) })).sort((a, b) => b.count - a.count)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trips, routeBy, places])
+  }, [trips, routeBy, places, stops])
 
-  function suggest(pup: string, dop: string, from: string, to: string) { return suggestRoutes(pup, dop, from, to, routes, placeBy) }
-
-  async function composeFor(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null) {
-    const { error } = await createComposedRoute(pup, dop, from, to, ho, dh)
+  async function composeFor(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null, st: string[] = [], mid: MidPick | null = null) {
+    const { error } = await createComposedRoute(pup, dop, from, to, ho, dh, st, mid)
     if (error) return toast(error, 'err')
-    toast('Trasa založena z úseků, doplňte PUP→DOP (km, hodiny, mýto).'); load()
+    toast(mid ? 'Trasa založena z úseků včetně PUP→DOP. Zkontrolujte ji.' : 'Trasa založena z úseků, doplňte PUP→DOP (km, hodiny, mýto).'); load()
   }
 
-  async function createRoute(pup: string, dop: string, from: string, to: string, src?: Route, variant = '') {
-    const { error } = await copyRoute(src, pup, dop, from, to, prices, variant)
+  async function createRoute(pup: string, dop: string, from: string, to: string, src?: Route, variant = '', st: string[] = []) {
+    const { error } = await copyRoute(src, pup, dop, from, to, prices, variant, st)
     if (error) return toast(error, 'err')
     toast(src ? `Trasa zkopírována z ${name(src.pup_id)} → ${name(src.dop_id)}. Zkontrolujte km a ceny.` : 'Trasa založena, doplňte úseky a ceny.')
     setCopyFrom(null); setNewPup(''); setNewDop(''); setNewFrom('CZ'); setNewTo('CZ'); setNewVariant(''); load()
@@ -175,17 +176,17 @@ export default function Routes() {
             <ul>
               {missing.slice(0, 30).map(m => (
                 <li key={m.pup + m.dop + m.from + m.to}>
-                  <span className="mroute">{name(m.pup)} → {name(m.dop)}{baseLabel(m.from, m.to) && <span className="nltag">{baseLabel(m.from, m.to)}</span>}</span> <span className="quiet">({m.count}×)</span>
+                  <span className="mroute">{name(m.pup)} → {name(m.dop)}{m.st.map(s => ` → ${name(s)}`).join('')}{baseLabel(m.from, m.to) && <span className="nltag">{baseLabel(m.from, m.to)}</span>}</span> <span className="quiet">({m.count}×)</span>
                   {canEdit && m.suggestions.map(s => (
-                    <button key={s.route.id} className="chip cust" title={s.why} onClick={() => createRoute(m.pup, m.dop, m.from, m.to, s.route)}>
+                    <button key={s.route.id} className="chip cust" title={s.why} onClick={() => createRoute(m.pup, m.dop, m.from, m.to, s.route, '', m.st)}>
                       Zkopírovat z {name(s.route.pup_id)} → {name(s.route.dop_id)}
                     </button>
                   ))}
                   {canEdit && m.suggestions.length === 0 && (m.comp.ho || m.comp.dh) && (
-                    <button className="chip cust" title={`${m.from}→PUP ${m.comp.ho ? 'z ' + m.comp.ho.why : 'chybí'}; DOP→${m.to} ${m.comp.dh ? 'z ' + m.comp.dh.why : 'chybí'}. PUP→DOP doplníte.`}
-                      onClick={() => composeFor(m.pup, m.dop, m.from, m.to, m.comp.ho, m.comp.dh)}>Založit z úseků{m.comp.ho && m.comp.dh ? '' : m.comp.ho ? ' (jen Odkud→PUP)' : ' (jen DOP→Kam)'}</button>
+                    <button className="chip cust" title={`${m.from}→PUP ${m.comp.ho ? 'z ' + m.comp.ho.why : 'chybí'}; ${m.comp.mid ? 'PUP→DOP součet ' + m.comp.mid.parts.join(' + ') + '; ' : ''}DOP→${m.to} ${m.comp.dh ? 'z ' + m.comp.dh.why : 'chybí'}.${m.comp.mid ? '' : ' PUP→DOP doplníte.'}`}
+                      onClick={() => composeFor(m.pup, m.dop, m.from, m.to, m.comp.ho, m.comp.dh, m.st, m.comp.mid)}>Založit z úseků{m.comp.mid ? ' (i PUP→DOP)' : m.comp.ho && m.comp.dh ? '' : m.comp.ho ? ' (jen Odkud→PUP)' : ' (jen DOP→Kam)'}</button>
                   )}
-                  {canEdit && <button className="link" onClick={() => createRoute(m.pup, m.dop, m.from, m.to)}>Založit prázdnou</button>}
+                  {canEdit && <button className="link" onClick={() => createRoute(m.pup, m.dop, m.from, m.to, undefined, '', m.st)}>Založit prázdnou</button>}
                   {m.suggestions.length === 0 && !m.comp.ho && !m.comp.dh && <span className="quiet"> Žádná podobná trasa ani úsek. Zkontrolujte města v Místech.</span>}
                 </li>
               ))}
@@ -211,7 +212,7 @@ export default function Routes() {
             {rows.map(r => (
               <tr key={r.id} className={routeIncomplete(r) ? 'incomplete' : ''} title={routeIncomplete(r) ? 'Chybí úsek PUP→DOP' + (r.note ? '. ' + r.note : '') : r.note ?? undefined}>
                 <td className="ro">{name(r.pup_id)}</td>
-                <td className="ro">{name(r.dop_id)}{r.copied_from && <span className="quiet small" title="Zkopírováno z jiné trasy"> ⧉</span>}</td>
+                <td className="ro">{name(r.dop_id)}{r.stops.map(s => <span key={s} className="quiet"> → {name(s)}</span>)}{r.copied_from && <span className="quiet small" title="Zkopírováno z jiné trasy"> ⧉</span>}</td>
                 <td className="variantcell"><Text disabled={!canEdit} value={r.variant} placeholder="základní" onSave={v => saveRoute(r, { variant: v.trim() })} /></td>
                 {LEGS.map(l => [
                   <td key={l.key + 'k'}>{numCell(r, `${l.key}_km` as keyof Route)}</td>,
@@ -235,7 +236,7 @@ export default function Routes() {
                 {canEdit && (
                   <td className="actions nowrap">
                     <button className="link small" onClick={() => { setCopyFrom(r); setNewPup(name(r.pup_id)); setNewDop(''); setNewFrom(r.base_from); setNewTo(r.base_to); setNewVariant(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Kopírovat</button>
-                    <button className="link small" title="Založí další variantu téhle trasy (stejný Pup, Dop i základny) se stejnými hodnotami k úpravě" onClick={() => { const v = window.prompt('Název varianty, třeba „přes Francii“')?.trim(); if (v) createRoute(r.pup_id, r.dop_id, r.base_from, r.base_to, r, v) }}>Varianta</button>
+                    <button className="link small" title="Založí další variantu téhle trasy (stejný Pup, Dop i základny) se stejnými hodnotami k úpravě" onClick={() => { const v = window.prompt('Název varianty, třeba „přes Francii“')?.trim(); if (v) createRoute(r.pup_id, r.dop_id, r.base_from, r.base_to, r, v, r.stops) }}>Varianta</button>
                     <button className="ghost" aria-label="Smazat trasu" onClick={() => removeRoute(r)}>×</button>
                   </td>
                 )}
