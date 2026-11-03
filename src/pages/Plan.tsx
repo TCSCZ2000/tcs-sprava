@@ -36,6 +36,7 @@ export default function Plan() {
   const [q, setQ] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [stops, setStops] = useState<StopsMap>(new Map())
+  const [showG3, setShowG3] = useState(false)
   const [carFilter, setCarFilter] = useState<string | null>(null)
   const [fleetOpen, setFleetOpen] = useState(true)
   const [view, setView] = usePref<'days' | 'list' | 'customers'>('plan.view', 'days')
@@ -236,6 +237,9 @@ export default function Plan() {
     exportXlsx(`planning_${hist ? 'historie_' : ''}${todayIso()}`, [{ name: hist ? 'Historie' : 'Planning', rows: [head, ...rows] }])
   }
 
+  // Guard 3 se ukáže jen když ho někdo má nebo ho chcete přidat
+  const g3 = showG3 || visible.some(t => t.guard3_id)
+
   function toggleStatus(name: string) {
     setHidden(cur => { const n = new Set(cur); n.has(name) ? n.delete(name) : n.add(name); return n })
   }
@@ -309,8 +313,8 @@ export default function Plan() {
         <table className="grid">
           <thead>
             <tr>
-              <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th>Dop</th><th title="Další vykládky po Dop: Dop 2, Dop 3 … Pište názvy oddělené čárkou.">Další Dop</th>
-              <th>Guard 1</th><th>Guard 2</th><th>Guard 3</th><th>Auto</th><th>Odkud</th>
+              <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th title="Dop. Další vykládky přidáte tlačítkem + v buňce.">Dop</th>
+              <th>Guard 1</th><th>Guard 2</th>{g3 && <th>Guard 3</th>}<th>Auto</th><th className="w-origin" title="Odkud auto vyjíždí: Praha, Příbram, jiné">Odkud</th>
               <th className="w-ref">Ref. TCS</th><th className="w-base" title="Základna: odkud posádka vyjíždí → kam se vrací (CZ, NL, …). Spravuje se v Místech.">Odkud→Kam</th><th className="w-nl" title="Take-over: cestu přebíráme od cizí posádky. Propíše se do Reportů.">T-O</th><th className="w-dt" title="Čas − Odkud→PUP z trasy (nebo doba jízdy v Místech). Kliknutím přepíšete ručně.">Start</th><th className="w-dt" title="Kdy posádka skončila na Dop (= Odjezd Dop v reportu). Pište 9:45 nebo 3.11. 9:45.">Konec Dop</th><th className="w-dt" title="Konec Dop + DOP→Kam z trasy, nahoru na čtvrthodiny. Kliknutím přepíšete ručně.">Home</th><th>Poznámka</th><th>Změna</th>
               {canCreate && <th className="w-x" aria-label="Akce" />}
             </tr>
@@ -318,13 +322,13 @@ export default function Plan() {
           {days.map(([date, rows]) => (
             <tbody key={date}>
               {view === 'customers' && <tr className="dayrow">
-                <td colSpan={canCreate ? 21 : 20}>
+                <td colSpan={(canCreate ? 20 : 19) + (g3 ? 1 : 0)}>
                   <span className="daylabel">{date === NO_CUSTOMER ? 'Bez zákazníka' : date}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
               </tr>}
               {view === 'days' && <tr className="dayrow">
-                <td colSpan={canCreate ? 21 : 20}>
+                <td colSpan={(canCreate ? 20 : 19) + (g3 ? 1 : 0)}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
@@ -386,11 +390,15 @@ export default function Plan() {
                       onSave={v => { const n = normTime(v); if (n === undefined) return toast('Čas zapište jako 8:30 nebo 0830.', 'err'); save(t, { trip_time: n }) }} /></td>
                     <td><Text disabled={!canRoute} list="dl-places" value={pup?.name ?? ''} wide
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { pup_id: id }) }} /></td>
-                    <td><Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
-                      onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} /></td>
-                    <td><Text disabled={!canRoute} list="dl-places" value={stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name ?? '?').join(', ')} wide placeholder="–"
-                      onSave={v => saveStops(t, v)} /></td>
-                    {GUARDS.map(g => {
+                    <td className="dopcell">
+                      <Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
+                        onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} />
+                      {(() => { const st = stopsOf(t, stops); const names = st.map(s => placeBy.get(s.place_id)?.name ?? '?').join(', ')
+                        return st.length
+                          ? <button className="link small stopsbtn" title="Další vykládky (kliknutím upravíte)" disabled={!canRoute} onClick={() => { const v = window.prompt('Další vykládky po Dop, oddělené čárkou (prázdné = žádné)', names); if (v !== null) saveStops(t, v) }}>→ {names}</button>
+                          : canRoute && <button className="ghost plus" title="Přidat další vykládky (Dop 2, Dop 3 …)" aria-label="Přidat další vykládky" onClick={() => { const v = window.prompt('Další vykládky po Dop, oddělené čárkou (třeba Budapest, Calais)'); if (v) saveStops(t, v) }}>+</button> })()}
+                    </td>
+                    {GUARDS.filter(g => g !== 'guard3_id' || g3).map(g => {
                       const p = personBy.get(t[g] ?? '')
                       const d = p ? docState(docs.get(p.id)?.passport_valid_to ?? null) : null
                       const flagged = t.crew_change?.includes(`G${g[5]}:`)
@@ -406,6 +414,7 @@ export default function Plan() {
                               save(t, { [g]: hit.id } as Partial<Trip>)
                             }} />
                           {d && <span className={'doc ' + d} aria-hidden>●</span>}
+                          {g === 'guard2_id' && !g3 && canCrew && <button className="ghost plus" title="Přidat Guard 3" aria-label="Přidat Guard 3" onClick={() => setShowG3(true)}>+</button>}
                         </td>
                       )
                     })}
