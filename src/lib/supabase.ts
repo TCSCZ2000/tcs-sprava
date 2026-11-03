@@ -27,6 +27,8 @@ export interface Car {
   state: string | null; note: string | null; label: string
   car_category: string | null; gps_platform: 'GpsGate' | 'RexGPS' | null
   service_last_km: number | null; km_current: number | null; service_next_km: number | null; km_updated: string | null
+  purchase_date: string | null; purchase_price: number | null; purchase_km: number | null; vin: string | null; year: number | null
+  service_group: string | null; service_at: string | null
 }
 export interface CarCategory { name: string; kind: 'own' | 'rental' | 'driver'; sort: number; visible: boolean }
 export interface Place { id: string; name: string; travel_time: string | null; ferry: boolean; city: string | null }

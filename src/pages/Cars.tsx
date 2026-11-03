@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase, type Car } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { carAlerts, kmLeft, OWN_STATES, RENTAL_STATES, STATES } from '../lib/cars'
 import { todayIso } from '../lib/format'
+import { STAGE_LABEL, serviceStatus, type CarKm, type CarService, type ServiceGroup, type WorkKind } from '../lib/service'
+import { CarDialog } from './CarDialog'
 import { Text } from './Plan'
 
 const KIND: Record<string, string> = { own: 'naše auto', rental: 'půjčovna', driver: 'osobní auto řidiče' }
@@ -23,6 +25,19 @@ export default function Cars() {
   const [onlyAlerts, setOnlyAlerts] = useState(false)
   const [q, setQ] = useState('')
   const [showCats, setShowCats] = useState(false)
+  const [records, setRecords] = useState<CarService[]>([])
+  const [kms, setKms] = useState<CarKm[]>([])
+  const [sgroups, setSgroups] = useState<ServiceGroup[]>([])
+  const [kinds, setKinds] = useState<WorkKind[]>([])
+  const [open, setOpen] = useState<string | null>(null)
+  const loadService = () => Promise.all([
+    supabase.from('car_service').select('*').order('done_on'),
+    supabase.from('car_km').select('*').order('at'),
+    supabase.from('car_service_groups').select('*').order('sort'),
+    supabase.from('car_work_kinds').select('*').order('sort'),
+  ]).then(([a, b, c, d]) => { setRecords((a.data as CarService[]) ?? []); setKms((b.data as CarKm[]) ?? []); setSgroups((c.data as ServiceGroup[]) ?? []); setKinds((d.data as WorkKind[]) ?? []) })
+  useEffect(() => { loadService() }, [])
+  const statusOf = (c: Car) => serviceStatus(c, records, kms, sgroups, kinds)
 
   const toggle = (set: Set<string>, save: (s: Set<string>) => void, k: string) => { const n = new Set(set); n.has(k) ? n.delete(k) : n.add(k); save(n) }
 
@@ -60,18 +75,34 @@ export default function Cars() {
     if (error) toast(explain(error), 'err'); else reloadLists()
   }
 
+  // Upozornění: servis podle historie a skupiny (jako hodinová kontrola), jinak podle ručně zapsaných km
+  function alertsOf(c: Car) {
+    const base = carAlerts({ ...c, service_next_km: null })
+    const st = statusOf(c)
+    if (st.left != null && (!st.group || st.group.notify) && (c.state ?? 'Aktivní') !== 'Prodáno') {
+      if (st.left < 0) base.unshift({ level: 'due', text: `Servis po termínu o ${(-st.left).toLocaleString('cs-CZ')} km` })
+      else if (st.left <= 3000) base.unshift({ level: 'soon', text: `Servis (${st.nextKind}) za ${st.left.toLocaleString('cs-CZ')} km` })
+    } else if (st.left == null && c.km_current != null && c.service_next_km != null) {
+      const l = c.service_next_km - c.km_current
+      if (l <= 0) base.unshift({ level: 'due', text: `Servis po termínu o ${(-l).toLocaleString('cs-CZ')} km` }); else if (l <= 2000) base.unshift({ level: 'soon', text: `Servis za ${l.toLocaleString('cs-CZ')} km` })
+    }
+    if (st.timingLeft != null && st.timingLeft <= 3000 && (!st.group || st.group.notify)) base.push({ level: st.timingLeft < 0 ? 'due' : 'soon', text: st.timingLeft < 0 ? `Rozvody po termínu o ${(-st.timingLeft).toLocaleString('cs-CZ')} km` : `Rozvody za ${st.timingLeft.toLocaleString('cs-CZ')} km` })
+    return base
+  }
+
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase()
     return cars
       .filter(c => !hiddenCat.has(c.car_category ?? '—'))
       .filter(c => !hiddenState.has(c.state ?? 'Aktivní'))
-      .filter(c => !onlyAlerts || carAlerts(c).length > 0)
+      .filter(c => !onlyAlerts || alertsOf(c).length > 0)
       .filter(c => !s || `${c.label} ${c.gps ?? ''} ${c.note ?? ''} ${c.car_category ?? ''}`.toLowerCase().includes(s))
-  }, [cars, hiddenCat, hiddenState, onlyAlerts, q])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cars, hiddenCat, hiddenState, onlyAlerts, q, records, kms, sgroups, kinds])
 
   const kindOf = (c: Car) => carCategories.find(k => k.name === c.car_category)?.kind
   const isOwn = (c: Car) => kindOf(c) === 'own' || kindOf(c) === 'rental'
-  const alertCount = cars.filter(c => carAlerts(c).length > 0).length
+  const alertCount = cars.filter(c => alertsOf(c).length > 0).length
   const svc = groups.has('service'), other = groups.has('other')
   const ed = canEdit
   const txt = (c: Car, k: keyof Car, opts: { mono?: boolean; wide?: boolean; upper?: boolean } = {}) => (
@@ -150,8 +181,8 @@ export default function Cars() {
         <table className="grid plain cargrid">
           <thead>
             <tr>
-              <th>Upozornění</th><th>Č.</th><th>SPZ</th><th>Model</th><th>Barva</th><th>Kategorie</th><th>GPS platforma</th><th>GPS jednotka</th><th>Stav</th>
-              {svc && <><th>Aktuální km</th><th>Km zapsané</th><th>Poslední servis</th><th>Další servis</th><th>Zbývá km</th><th>STK do</th><th>Známka CZ do</th></>}
+              <th className="w-dots" aria-label="Detail" /><th>Upozornění</th><th>Č.</th><th>SPZ</th><th>Model</th><th>Barva</th><th>Kategorie</th><th>GPS platforma</th><th>GPS jednotka</th><th>Stav</th>
+              {svc && <><th title="Nejvyšší stav km z odečtů a ručních zápisů">Stav km</th><th>Km k datu</th><th title="Z historie servisů">Poslední servis</th><th title="Podle servisní skupiny">Další servis</th><th>Zbývá km</th><th>STK do</th><th>Známka CZ do</th></>}
               {other && <><th>Třída</th><th>LOC</th><th>UTA</th><th>Pojišťovna</th><th>Pneu</th></>}
               <th>Poznámka</th>
               {canEdit && <th className="w-x" aria-label="Akce" />}
@@ -159,9 +190,10 @@ export default function Cars() {
           </thead>
           <tbody>
             {rows.map(c => {
-              const al = carAlerts(c), left = kmLeft(c)
+              const al = alertsOf(c), st = statusOf(c), left = st.left ?? kmLeft(c)
               return (
                 <tr key={c.id} className={al.some(a => a.level === 'due') ? 'alert-due' : al.length ? 'alert-soon' : ''}>
+                  <td className="w-dots"><button className="ghost dots" title="Detail auta: servis, km, soubory, karty" aria-label="Detail auta" onClick={() => setOpen(c.id)}>⋯</button></td>
                   <td className="alerts">{al.map(a => <span key={a.text} className={'badge ' + a.level}>{a.text}</span>)}</td>
                   <td>{isOwn(c)
                     ? <span className="ro mono" title={kindOf(c) === 'rental' ? 'Auta z půjčovny se číslují samy podle půjčovny' : 'Naše auta se číslují samy podle SPZ (TCS, pak Manažerská)'}>{c.car_no ?? ''}</span>
@@ -188,11 +220,11 @@ export default function Cars() {
                     </select>
                   </td>
                   {svc && <>
-                    <td>{kmCell(c, 'km_current')}</td>
-                    <td><span className="ro quiet">{c.km_updated ? c.km_updated.split('-').reverse().join('. ') : ''}</span></td>
-                    <td>{kmCell(c, 'service_last_km')}</td>
-                    <td>{kmCell(c, 'service_next_km')}</td>
-                    <td className={'num ' + (left == null ? '' : left <= 0 ? 'expired' : left <= 2000 ? 'soon' : '')}><span className="ro">{left == null ? '' : left.toLocaleString('cs-CZ')}</span></td>
+                    <td>{st.kmMax != null && st.kmMax !== c.km_current ? <span className="ro mono" title="Z odečtů v detailu auta">{st.kmMax.toLocaleString('cs-CZ')}</span> : kmCell(c, 'km_current')}</td>
+                    <td><span className="ro quiet">{st.kmAt ? st.kmAt.slice(0, 10).split('-').reverse().join('. ') : c.km_updated ? c.km_updated.split('-').reverse().join('. ') : ''}</span></td>
+                    <td>{st.lastService ? <span className="ro mono" title={`${st.lastService.kind} ${st.lastService.done_on}`}>{st.lastService.km?.toLocaleString('cs-CZ')}</span> : kmCell(c, 'service_last_km')}</td>
+                    <td>{st.nextKm != null ? <span className="ro mono" title={`${st.nextKind} servis, skupina ${st.group?.name}`}>{st.nextKm.toLocaleString('cs-CZ')} <span className="quiet small">{st.nextKind}</span></span> : kmCell(c, 'service_next_km')}</td>
+                    <td className={'num ' + (left == null ? '' : left <= 0 ? 'expired' : left <= 3000 ? 'soon' : '')} title={st.stage ? STAGE_LABEL[st.stage] : undefined}><span className="ro">{left == null ? '' : left.toLocaleString('cs-CZ')}</span></td>
                     <td>{dateCell(c, 'stk_until')}</td>
                     <td>{dateCell(c, 'vignette_until')}</td>
                   </>}
@@ -208,6 +240,9 @@ export default function Cars() {
         </table>
         {rows.length === 0 && <p className="empty">Žádné auto neodpovídá filtrům.</p>}
       </div>
+      {open && cars.find(c => c.id === open) && (
+        <CarDialog car={cars.find(c => c.id === open)!} records={records} kms={kms} groups={sgroups} kinds={kinds} onClose={() => setOpen(null)} onChanged={() => { loadService(); reloadLists() }} />
+      )}
     </section>
   )
 }

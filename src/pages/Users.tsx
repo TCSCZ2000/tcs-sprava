@@ -24,6 +24,7 @@ const GROUPS: { tab: string; rows: Row[] }[] = [
   { tab: 'Reporty', rows: [{ key: 'reports', label: 'Přístup', kind: 'tri', viewer: true, names: { none: 'nevidí', read: 'čte', write: 'dopisuje reporty' } }] },
   { tab: 'Trasy a ceny', rows: [{ key: 'routes', label: 'Přístup', kind: 'tri', viewer: true }] },
   { tab: 'Hodiny', rows: [{ key: 'hours', label: 'Přístup', kind: 'tri', viewer: true }] },
+  { tab: 'Auta – PINy', rows: [{ key: 'cars_pins', label: 'PINy tankovacích karet (po zadání hesla k PINům)', kind: 'tri', viewer: true }] },
   { tab: 'Lidé', rows: [
     { key: 'people', label: 'Kontakty', kind: 'tri', viewer: true },
     { key: 'people_docs', label: 'Doklady a pasy', kind: 'tri', viewer: true },
@@ -38,11 +39,11 @@ const VIEWER_KEYS = GROUPS.flatMap(g => g.rows.filter(r => r.viewer).map(r => r.
 // Šablony pro rychlé nastavení Individuální role
 const PRESETS: { name: string; perms: Draft }[] = [
   { name: 'Dispečer', perms: { planning: 'write', planning_create: 'write', planning_status: 'write', planning_crew: 'write', planning_route: 'write',
-    podklad: 'read', reports: 'read', routes: 'none', hours: 'none', people: 'write', people_docs: 'read', cars: 'read', places: 'write', users: 'none' } },
+    podklad: 'read', reports: 'read', routes: 'none', hours: 'none', cars_pins: 'none', people: 'write', people_docs: 'read', cars: 'read', places: 'write', users: 'none' } },
   { name: 'Vše zakázat', perms: Object.fromEntries(ALL_KEYS.map(k => [k, 'none'])) as Draft },
 ]
 
-const VIEWER_DEFAULT: Draft = { planning: 'read', podklad: 'read', reports: 'none', routes: 'none', hours: 'none', people: 'read', people_docs: 'none', cars: 'read', places: 'read' }
+const VIEWER_DEFAULT: Draft = { planning: 'read', podklad: 'read', reports: 'none', routes: 'none', hours: 'none', cars_pins: 'none', people: 'read', people_docs: 'none', cars: 'read', places: 'read' }
 
 function cap(role: Role, d: Draft): Draft {
   if (role === 'admin') return {}
@@ -56,21 +57,39 @@ export default function Users() {
   const [invites, setInvites] = useState<Invite[]>([])
   const [perms, setPerms] = useState<Perm[]>([])
   const [defs, setDefs] = useState<Def[]>([])
+  const [pinKeys, setPinKeys] = useState<Set<string>>(new Set())
   const [open, setOpen] = useState<string | null>(null)
   const [form, setForm] = useState({ email: '', full_name: '', role: 'viewer' as Role })
   const [draft, setDraft] = useState<Draft>(VIEWER_DEFAULT)
 
   const load = useCallback(async () => {
-    const [p, i, pm, d] = await Promise.all([
+    const [p, i, pm, d, pk] = await Promise.all([
       supabase.from('profiles').select('*').order('full_name'),
       supabase.from('invites').select('*').order('full_name'),
       supabase.from('permissions').select('*'),
       supabase.from('role_defaults').select('*'),
+      supabase.from('pin_keys').select('user_id'),
     ])
     setProfiles((p.data as Profile[]) ?? []); setInvites((i.data as Invite[]) ?? [])
     setPerms((pm.data as Perm[]) ?? []); setDefs((d.data as Def[]) ?? [])
+    setPinKeys(new Set(((pk.data as { user_id: string }[]) ?? []).map(x => x.user_id)))
   }, [])
   useEffect(() => { load() }, [load])
+
+  // PINy tankovacích karet: přístup na osobu (hlavní klíč zabalený jejím heslem)
+  async function grantPins(p: Profile) {
+    const mine = window.prompt(`Vaše heslo k PINům (pro předání přístupu uživateli ${p.full_name})`); if (!mine) return
+    const theirs = window.prompt(`Počáteční heslo k PINům pro ${p.full_name} (aspoň 6 znaků). Sdělte mu ho, pak si ho změní.`); if (!theirs) return
+    const { error } = await supabase.rpc('pins_grant', { p_my_password: mine, p_user: p.id, p_their_password: theirs })
+    if (error) return toast(error.message.replace(/^.*?: /, ''), 'err')
+    toast(`${p.full_name} má přístup k PINům.`); load()
+  }
+  async function revokePins(p: Profile) {
+    if (!window.confirm(`Zrušit ${p.full_name} přístup k PINům?`)) return
+    const { error } = await supabase.rpc('pins_revoke', { p_user: p.id })
+    if (error) return toast(error.message.replace(/^.*?: /, ''), 'err')
+    toast('Přístup k PINům zrušen.'); load()
+  }
 
   const roleLevel = (r: Role, k: string): Level => defs.find(d => d.role === r && d.module === k)?.level ?? 'none'
   const eff = (p: Profile, k: string): Level => {
@@ -131,6 +150,7 @@ export default function Users() {
     if (get('podklad') !== 'none') tabs.push('Podklad')
     if (get('routes') !== 'none') tabs.push('Trasy a ceny' + (get('routes') === 'read' ? ' (čte)' : ''))
     if (get('hours') !== 'none') tabs.push('Hodiny' + (get('hours') === 'read' ? ' (čte)' : ''))
+    if (get('cars_pins') !== 'none') tabs.push('PINy karet')
     if (get('reports') !== 'none') tabs.push('Reporty' + (get('reports') === 'read' ? ' (čte)' : ''))
     for (const [k, l] of [['people', 'Lidé'], ['people_docs', 'Doklady'], ['cars', 'Auta'], ['places', 'Místa'], ['users', 'Uživatelé']])
       if (get(k) !== 'none') tabs.push(l + (get(k) === 'read' ? ' (čte)' : ''))
@@ -185,6 +205,9 @@ export default function Users() {
                   {p.id !== profile?.id && (
                     <button className="link" onClick={() => setActive(p, !p.active)}>{p.active ? 'Zablokovat' : 'Odblokovat'}</button>
                   )}
+                  {p.active && eff(p, 'cars_pins') !== 'none' && (pinKeys.has(p.id)
+                    ? <span className="pintag" title="Má vlastní heslo k PINům tankovacích karet">PINy ✓ {pinKeys.size > 0 && <button className="link small" onClick={() => revokePins(p)}>zrušit</button>}</span>
+                    : pinKeys.size > 0 ? <button className="link small" onClick={() => grantPins(p)} title="Dát přístup k PINům tankovacích karet">dát přístup k PINům</button> : null)}
                 </td>
                 <td>
                   {p.role !== 'admin' && (
