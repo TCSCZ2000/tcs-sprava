@@ -3,7 +3,8 @@ import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { supabase, type RouteTime, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { carAlerts, inPlanning } from '../lib/cars'
-import { addHoursIso, computeStart, dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from '../lib/format'
+import { dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from '../lib/format'
+import { buildRouteIndex, dopHoHours, hoPupHours, plannedHomeIso, plannedStartIso, requestIso } from '../lib/planned'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
@@ -50,22 +51,7 @@ export default function Plan() {
     return m
   }, [cars, carCategories])
   const statusBy = useMemo(() => new Map(statuses.map(s => [s.name, s])), [statuses])
-  const routeTimeBy = useMemo(() => new Map(routeTimes.map(r => [`${r.pup_id}|${r.dop_id}|${r.home_base}`, r])), [routeTimes])
-  // Náhrada, když celá trasa chybí: HO→PUP z jiné trasy ze stejného Pup, DOP→HO z jiné trasy na stejný Dop
-  // (jen trasy se stejnou základnou CZ/NL; při víc hodnotách ta nejčastější)
-  const [pupH, dopH] = useMemo(() => {
-    const pick = (key: 'pup_id' | 'dop_id', h: 'ho_pup_h' | 'dop_ho_h') => {
-      const cnt = new Map<string, Map<number, number>>()
-      for (const r of routeTimes) {
-        if (r[h] == null) continue
-        const id = `${r.home_base}|${r[key]}`
-        const m = cnt.get(id) ?? new Map<number, number>(); cnt.set(id, m)
-        m.set(Number(r[h]), (m.get(Number(r[h])) ?? 0) + 1)
-      }
-      return new Map([...cnt].map(([id, m]) => [id, [...m].sort((a, b) => b[1] - a[1])[0][0]]))
-    }
-    return [pick('pup_id', 'ho_pup_h'), pick('dop_id', 'dop_ho_h')]
-  }, [routeTimes])
+  const ridx = useMemo(() => buildRouteIndex(routeTimes), [routeTimes])
 
   // Doby jízdy z kalkulací tras (HO→PUP, DOP→HO) – přes funkci, aby je viděl i ten, kdo nevidí ceny
   useEffect(() => {
@@ -325,22 +311,17 @@ export default function Plan() {
                 const st = statusBy.get(t.status ?? '')
                 const pup = placeBy.get(t.pup_id ?? '')
                 const car = carBy.get(t.car_id ?? '')
-                const rt = routeTimeBy.get(`${t.pup_id}|${t.dop_id}|${t.home_base}`)
                 const nl = t.home_base === 'NL'
-                const reqIso = t.trip_time ? `${t.trip_date}T${t.trip_time.slice(0, 5)}:00` : null
-                // Start: ručně > z trasy (HO→PUP) > doba jízdy v Místech
-                const hoPup = rt?.ho_pup_h != null ? Number(rt.ho_pup_h) : !rt && t.pup_id ? pupH.get(`${t.home_base}|${t.pup_id}`) : undefined
-                const hoPupFrom = (rt?.ho_pup_h != null ? 'z trasy' : 'z jiné trasy ze stejného Pup') + (nl ? ' (NL–NL)' : '')
-                const startAuto = hoPup != null && reqIso ? fmtRel(addHoursIso(reqIso, -hoPup, 5), t.trip_date)
-                  : computeStart(t.trip_date, t.trip_time, pup?.travel_time ?? null, pup?.ferry ?? false)
-                const start = t.start_at ? fmtRel(t.start_at, t.trip_date) : startAuto
-                const startHow = t.start_at ? 'Zadáno ručně' : hoPup != null ? `HO→PUP ${hoPup} h ${hoPupFrom}` : pup?.travel_time ? 'Z doby jízdy v Místech (žádná trasa z tohoto Pup nemá HO→PUP)' : 'Chybí trasa i doba jízdy'
-                // Home: ručně > konec Dop + DOP→HO z trasy (nebo z jiné trasy na stejný Dop)
-                const dopHo = rt?.dop_ho_h != null ? Number(rt.dop_ho_h) : !rt && t.dop_id ? dopH.get(`${t.home_base}|${t.dop_id}`) : undefined
-                const dopHoFrom = (rt?.dop_ho_h != null ? 'z trasy' : 'z jiné trasy na stejný Dop') + (nl ? ' (NL–NL)' : '')
-                const homeAuto = t.dep_dop && dopHo != null ? fmtRel(addHoursIso(t.dep_dop, dopHo), t.trip_date) : ''
-                const home = t.home_at ? fmtRel(t.home_at, t.trip_date) : homeAuto
-                const homeHow = t.home_at ? 'Zadáno ručně' : homeAuto ? `Konec Dop + DOP→HO ${dopHo} h ${dopHoFrom}` : !t.dep_dop ? 'Vyplňte Konec Dop' : 'Žádná trasa na tento Dop nemá DOP→HO'
+                const reqIso = requestIso(t)
+                // Start: ručně > čas − HO→PUP z tras > doba jízdy v Místech
+                const hp = hoPupHours(t, ridx)
+                const startIso = plannedStartIso(t, ridx, placeBy)
+                const start = pup?.ferry && !t.start_at && !hp ? 'ferry' : fmtRel(startIso, t.trip_date)
+                const startHow = t.start_at ? 'Zadáno ručně' : hp ? `HO→PUP ${hp.h} h ${hp.from === 'route' ? 'z trasy' : 'z jiné trasy ze stejného Pup'}${nl ? ' (NL–NL)' : ''}` : pup?.travel_time ? 'Z doby jízdy v Místech (žádná trasa z tohoto Pup nemá HO→PUP)' : 'Chybí trasa i doba jízdy'
+                // Home: ručně > konec Dop + DOP→HO z tras
+                const dh = dopHoHours(t, ridx)
+                const home = fmtRel(plannedHomeIso(t, ridx), t.trip_date)
+                const homeHow = t.home_at ? 'Zadáno ručně' : home ? `Konec Dop + DOP→HO ${dh!.h} h ${dh!.from === 'route' ? 'z trasy' : 'z jiné trasy na stejný Dop'}${nl ? ' (NL–NL)' : ''}` : !t.dep_dop ? 'Vyplňte Konec Dop' : 'Žádná trasa na tento Dop nemá DOP→HO'
                 const saveDT = (key: 'start_at' | 'dep_dop' | 'home_at', v: string, base: string) => {
                   const r = parseDT(v, base, key !== 'start_at')
                   if (r === undefined) return toast('Čas zapište jako 9:45 nebo 3.11. 9:45.', 'err')

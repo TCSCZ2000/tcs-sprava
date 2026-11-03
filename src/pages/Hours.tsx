@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { supabase, type HoursExtra, type Trip } from '../lib/supabase'
+import { supabase, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
+import { buildRouteIndex, plannedStartIso } from '../lib/planned'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, fmtH, round2, type Seg } from '../lib/hours'
@@ -17,16 +18,20 @@ const monthStart = (m: string) => `${m}-01`
 type Row = { person: string; segs: Seg[]; extra: HoursExtra[]; raw: number; real: number; mimo: number; pevne: number; total: number; pending: number }
 
 export default function Hours() {
-  const { level, people, toast } = useApp()
+  const { level, people, places, toast } = useApp()
   const canEdit = level('hours') === 'write'
   const [month, setMonth] = useState(todayIso().slice(0, 7))
   const [trips, setTrips] = useState<Trip[]>([])
   const [extra, setExtra] = useState<HoursExtra[]>([])
+  const [routeTimes, setRouteTimes] = useState<RouteTime[]>([])
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
   const [form, setForm] = useState<{ person: string; date: string; kind: HoursExtra['kind']; hours: string; note: string } | null>(null)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
+  const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
+  const ridx = useMemo(() => buildRouteIndex(routeTimes), [routeTimes])
+  useEffect(() => { supabase.rpc('route_times').then(({ data }) => setRouteTimes((data as RouteTime[]) ?? [])) }, [])
   const from = monthStart(month), to = monthStart(shiftMonth(month, 1))
 
   const load = () => {
@@ -43,7 +48,7 @@ export default function Hours() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [month])
 
-  const { segs } = useMemo(() => chainHours(trips), [trips])
+  const { segs } = useMemo(() => chainHours(trips, t => plannedStartIso(t, ridx, placeBy)), [trips, ridx, placeBy])
   const inMonth = (t: Trip) => t.trip_date >= from && t.trip_date < to
   const counted = (t: Trip) => t.status === 'Finished' && t.report_no != null
   const pendingTrips = useMemo(() => trips.filter(t => inMonth(t) && !counted(t) && t.status !== 'Canceled'), [trips, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -172,6 +177,8 @@ export default function Hours() {
                             <td className="quiet">
                               {adjNote(s)}
                               {s.adj?.kind === 'auto' && canEdit && <> <button className="link small" onClick={() => setCombi(s.adj!.next, true)}>Potvrdit</button> <button className="link small" onClick={() => setCombi(s.adj!.next, false)}>Nenavazuje</button></>}
+                              {!s.adj && s.next && s.next.kind === 'none' && <>další cesta za {fmtGap(s.next.gapH)}{s.next.planned ? ' (podle plánovaného startu)' : ''}{canEdit && <> <button className="link small" onClick={() => setCombi(s.next!.trip, true)}>navazuje</button></>}</>}
+                              {!s.adj && s.next && s.next.kind === 'rejected' && <>nenavazuje (odmítnuto){canEdit && <> <button className="link small" onClick={() => setCombi(s.next!.trip, null)}>zrušit</button></>}</>}
                             </td>
                           </tr>
                         ))}
@@ -207,7 +214,7 @@ export default function Hours() {
 function adjNote(s: Seg): string {
   if (!s.adj) return ''
   const n = s.adj.next.ref_tcs ?? (s.adj.next.report_no ? `#${s.adj.next.report_no}` : 'další cesta')
-  const gap = s.adj.gapH < 0 ? `překryv ${fmtGap(s.adj.gapH)}` : `mezera ${fmtGap(s.adj.gapH)}`
+  const gap = (s.adj.gapH < 0 ? `překryv ${fmtGap(s.adj.gapH)}` : `mezera ${fmtGap(s.adj.gapH)}`) + (s.adj.nextPlanned ? ', podle plánovaného startu' : '')
   const how = { overlap: 'zkráceno', auto: 'navrženo', confirmed: 'potvrzeno', manual: 'ručně' }[s.adj.kind]
   return `${how}: navazuje ${n} (${gap})`
 }

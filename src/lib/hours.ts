@@ -13,7 +13,8 @@ export type Seg = {
   hours: number | null        // hodiny pro mzdy
   hoursRaw: number | null     // hodiny z reportu bez úprav
   manual: boolean             // hodiny ručně z reportu
-  adj: { kind: AdjKind; next: Trip; gapH: number } | null
+  adj: { kind: AdjKind; next: Trip; gapH: number; nextStart: string; nextPlanned: boolean } | null
+  next: { trip: Trip; gapH: number; kind: Link['kind']; planned: boolean } | null  // další cesta člověka, i když nenavazuje
 }
 export type Link = { person: string; prev: Trip; gapH: number; kind: AdjKind | 'rejected' | 'none' }
 
@@ -22,26 +23,32 @@ const ms = (v: string) => Date.parse(v.replace(' ', 'T'))
 export const round2 = (n: number) => Math.round(n * 100) / 100
 
 // Pro každého člověka seřadí jeho cesty a dopočítá konce podle navazování.
-// Vrací segmenty (tripId|personId) a pro každou cestu seznam vazeb na předchozí cesty posádky (byNext).
-export function chainHours(trips: Trip[]) {
+// Další cesta se bere i bez reportu: pak se počítá s jejím plánovaným startem (startOf), jako v Excelu.
+// Vrací segmenty (tripId|personId) jen pro cesty s reportem a pro každou cestu vazby na předchozí cesty posádky (byNext).
+export function chainHours(trips: Trip[], startOf?: (t: Trip) => string | null) {
   const segs = new Map<string, Seg>()
   const byNext = new Map<string, Link[]>()
   const perPerson = new Map<string, Trip[]>()
   for (const t of trips) {
+    if (t.status === 'Canceled') continue
     for (const g of GUARDS) { const p = t[g]; if (p) { if (!perPerson.has(p)) perPerson.set(p, []); perPerson.get(p)!.push(t) } }
   }
   for (const [person, list] of perPerson) {
-    const withStart = list.filter(t => t.dep_home).sort((a, b) => ms(a.dep_home!) - ms(b.dep_home!))
-    for (const t of list.filter(t => !t.dep_home)) {
-      segs.set(`${t.id}|${person}`, { trip: t, person, start: null, end: t.arr_home, endAdj: null, hours: t.hours_manual ?? null, hoursRaw: t.hours_manual ?? null, manual: t.hours_manual != null, adj: null })
+    const items = list.map(t => ({ t, start: t.dep_home ?? startOf?.(t) ?? null, planned: !t.dep_home }))
+      .filter(x => x.start).sort((a, b) => ms(a.start!) - ms(b.start!))
+    for (const t of list.filter(t => !t.dep_home && t.hours_manual != null)) {
+      segs.set(`${t.id}|${person}`, { trip: t, person, start: null, end: t.arr_home, endAdj: null, hours: Number(t.hours_manual), hoursRaw: Number(t.hours_manual), manual: true, adj: null, next: null })
     }
-    withStart.forEach((t, i) => {
-      const next = withStart[i + 1]
-      const seg: Seg = { trip: t, person, start: t.dep_home, end: t.arr_home, endAdj: null, hours: null, hoursRaw: null, manual: false, adj: null }
+    items.forEach((it, i) => {
+      const t = it.t
+      if (it.planned) return
+      const nx = items[i + 1]
+      const seg: Seg = { trip: t, person, start: t.dep_home, end: t.arr_home, endAdj: null, hours: null, hoursRaw: null, manual: false, adj: null, next: null }
       if (t.arr_home) seg.hoursRaw = round2((ms(t.arr_home) - ms(t.dep_home!)) / 36e5)
       if (t.hours_manual != null) { seg.manual = true; seg.hours = Number(t.hours_manual); seg.hoursRaw = Number(t.hours_manual) }
-      if (next && t.arr_home) {
-        const gapH = round2((ms(next.dep_home!) - ms(t.arr_home)) / 36e5)
+      if (nx && t.arr_home) {
+        const next = nx.t
+        const gapH = round2((ms(nx.start!) - ms(t.arr_home)) / 36e5)
         let kind: Link['kind'] = 'none'
         if (gapH < 0) kind = 'overlap'
         else if (next.combi === true) kind = gapH <= COMBI_GAP_H ? 'confirmed' : 'manual'
@@ -49,10 +56,11 @@ export function chainHours(trips: Trip[]) {
         else if (gapH <= COMBI_GAP_H) kind = 'auto'
         if (!byNext.has(next.id)) byNext.set(next.id, [])
         byNext.get(next.id)!.push({ person, prev: t, gapH, kind })
+        seg.next = { trip: next, gapH, kind, planned: nx.planned }
         if (kind !== 'none' && kind !== 'rejected') {
-          seg.adj = { kind, next, gapH }
-          seg.endAdj = next.dep_home
-          if (!seg.manual) seg.hours = round2((ms(next.dep_home!) - ms(t.dep_home!)) / 36e5)
+          seg.adj = { kind, next, gapH, nextStart: nx.start!, nextPlanned: nx.planned }
+          seg.endAdj = nx.start!
+          if (!seg.manual) seg.hours = round2((ms(nx.start!) - ms(t.dep_home!)) / 36e5)
         }
       }
       if (seg.hours == null && !seg.manual && t.arr_home) seg.hours = seg.hoursRaw

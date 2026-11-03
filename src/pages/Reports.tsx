@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabase'
+import { supabase, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
+import { buildRouteIndex, plannedStartIso } from '../lib/planned'
 import { eur, tripPrice } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
@@ -37,6 +38,9 @@ export default function Reports() {
   const [showDone, setShowDone] = useState(false)
   const [doneMonth, setDoneMonth] = useState(todayIso().slice(0, 7))
   const [chainTrips, setChainTrips] = useState<Trip[]>([])
+  const [routeTimes, setRouteTimes] = useState<RouteTime[]>([])
+  useEffect(() => { supabase.rpc('route_times').then(({ data }) => setRouteTimes((data as RouteTime[]) ?? [])) }, [])
+  const ridx = useMemo(() => buildRouteIndex(routeTimes), [routeTimes])
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
 
@@ -58,10 +62,10 @@ export default function Reports() {
 
   // Cesty s odjezdem za posledních 90 dní kvůli navazování (předchozí cesta posádky může být i hotová nebo ještě v plánu)
   useEffect(() => {
-    supabase.from('trips').select('*').not('dep_home', 'is', null).gte('trip_date', todayIso(-90))
+    supabase.from('trips').select('*').gte('trip_date', todayIso(-90)).neq('status', 'Canceled')
       .then(({ data }) => setChainTrips((data as Trip[]) ?? []))
   }, [trips])
-  const { byNext } = useMemo(() => chainHours(chainTrips), [chainTrips])
+  const { byNext } = useMemo(() => chainHours(chainTrips, t => plannedStartIso(t, ridx, placeBy)), [chainTrips, ridx, placeBy])
 
   useEffect(() => {
     const ch = supabase.channel('reports')
