@@ -1,9 +1,9 @@
 import { supabase, type Place, type Route, type RoutePrice, type Trip } from './supabase'
 
 export const LEGS = [
-  { key: 'ho_pup', label: 'HO→PUP' },
+  { key: 'ho_pup', label: 'Odkud→PUP' },
   { key: 'pup_dop', label: 'PUP→DOP' },
-  { key: 'dop_ho', label: 'DOP→HO' },
+  { key: 'dop_ho', label: 'DOP→Kam' },
 ] as const
 
 const n = (v: number | string | null | undefined) => (v == null || v === '' ? 0 : Number(v))
@@ -50,12 +50,12 @@ export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[
 }
 
 // Podobné trasy: stejné Pup / Dop, nebo stejné město (KN Frankfurt ~ CHI Frankfurt), stejná základna
-export function suggestRoutes(pup: string, dop: string, base: string, routes: Route[], placeBy: Map<string, Place>): { route: Route; why: string }[] {
+export function suggestRoutes(pup: string, dop: string, from: string, to: string, routes: Route[], placeBy: Map<string, Place>): { route: Route; why: string }[] {
   const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
   const pc = city(pup), dc = city(dop)
   const out: { route: Route; why: string; score: number }[] = []
   for (const r of routes) {
-    if (r.home_base !== base) continue
+    if (r.base_from !== from || r.base_to !== to) continue
     const samePup = r.pup_id === pup, sameDop = r.dop_id === dop
     const pupCity = !!pc && city(r.pup_id) === pc, dopCity = !!dc && city(r.dop_id) === dc
     if ((samePup || pupCity) && (sameDop || dopCity) && !(samePup && sameDop)) {
@@ -66,9 +66,9 @@ export function suggestRoutes(pup: string, dop: string, base: string, routes: Ro
 }
 
 // Založí trasu jako kopii jiné (úseky, sazby, pevné ceny); vrací chybu nebo null
-export async function copyRoute(src: Route | undefined, pup: string, dop: string, base: string, prices: RoutePrice[]): Promise<{ error: string | null; id?: string }> {
-  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'home_base'].includes(k))) : {}
-  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, home_base: base, copied_from: src?.id ?? null }).select().single()
+export async function copyRoute(src: Route | undefined, pup: string, dop: string, from: string, to: string, prices: RoutePrice[]): Promise<{ error: string | null; id?: string }> {
+  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'base_from', 'base_to'].includes(k))) : {}
+  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, copied_from: src?.id ?? null }).select().single()
   if (error) return { error: error.code === '23505' ? 'Tahle trasa už existuje.' : error.message }
   if (src) {
     const ps = prices.filter(p => p.route_id === src.id).map(p => ({ route_id: (data as Route).id, label: p.label, pup_dop_h: p.pup_dop_h, price: p.price, sort: p.sort }))
@@ -80,11 +80,11 @@ export async function copyRoute(src: Route | undefined, pup: string, dop: string
 // Složení trasy z hotových úseků: HO→PUP z jiné trasy ze stejného Pup (nebo města), DOP→HO z jiné trasy na stejný Dop (nebo město).
 // PUP→DOP zůstane prázdný k doplnění.
 export type LegPick = { route: Route; why: string }
-export function composeRoute(pup: string, dop: string, base: string, routes: Route[], placeBy: Map<string, Place>): { ho: LegPick | null; dh: LegPick | null } {
+export function composeRoute(pup: string, dop: string, from: string, to: string, routes: Route[], placeBy: Map<string, Place>): { ho: LegPick | null; dh: LegPick | null } {
   const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
   const name = (id: string) => placeBy.get(id)?.name ?? '?'
   const pick = (key: 'pup_id' | 'dop_id', id: string, h: 'ho_pup_h' | 'dop_ho_h', km: 'ho_pup_km' | 'dop_ho_km'): LegPick | null => {
-    const cand = routes.filter(r => r.home_base === base && (r[h] != null || r[km] != null))
+    const cand = routes.filter(r => (key === 'pup_id' ? r.base_from === from : r.base_to === to) && (r[h] != null || r[km] != null))
     const exact = cand.filter(r => r[key] === id).sort((a, b) => b.updated_at.localeCompare(a.updated_at))
     if (exact[0]) return { route: exact[0], why: `${name(exact[0].pup_id)} → ${name(exact[0].dop_id)} (stejné místo)` }
     const c = city(id)
@@ -95,13 +95,13 @@ export function composeRoute(pup: string, dop: string, base: string, routes: Rou
   return { ho: pick('pup_id', pup, 'ho_pup_h', 'ho_pup_km'), dh: pick('dop_id', dop, 'dop_ho_h', 'dop_ho_km') }
 }
 
-export async function createComposedRoute(pup: string, dop: string, base: string, ho: LegPick | null, dh: LegPick | null): Promise<{ error: string | null }> {
+export async function createComposedRoute(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null): Promise<{ error: string | null }> {
   const src = ho?.route ?? dh?.route
   const vals: Partial<Route> = { rate_h: src?.rate_h ?? 10, rate_km: src?.rate_km ?? 0.28 }
   if (ho) Object.assign(vals, { ho_pup_km: ho.route.ho_pup_km, ho_pup_h: ho.route.ho_pup_h, ho_pup_toll: ho.route.ho_pup_toll })
   if (dh) Object.assign(vals, { dop_ho_km: dh.route.dop_ho_km, dop_ho_h: dh.route.dop_ho_h, dop_ho_toll: dh.route.dop_ho_toll })
-  const { error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, home_base: base, copied_from: src?.id ?? null,
-    note: `Složeno z úseků: HO→PUP ${ho ? 'z ' + ho.why : 'chybí'}; DOP→HO ${dh ? 'z ' + dh.why : 'chybí'}. Doplňte PUP→DOP.` })
+  const { error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, copied_from: src?.id ?? null,
+    note: `Složeno z úseků: ${from}→PUP ${ho ? 'z ' + ho.why : 'chybí'}; DOP→${to} ${dh ? 'z ' + dh.why : 'chybí'}. Doplňte PUP→DOP.` })
   if (error) return { error: error.code === '23505' ? 'Tahle trasa už existuje.' : error.message }
   return { error: null }
 }

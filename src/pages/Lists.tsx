@@ -2,6 +2,7 @@ import { supabase, type Car, type Person, type Place } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { docState, intervalToMinutes, minutesToHM, parseDuration } from '../lib/format'
 import ListTable, { type Col } from './ListTable'
+import { Text } from './Plan'
 
 type PersonRow = Person & { id_number: string; id_valid_to: string; passport_number: string; passport_valid_to: string }
 
@@ -80,8 +81,56 @@ export function Places() {
     { key: 'ferry', label: 'Trajekt', type: 'check', get: r => String(r.ferry), save: (r, v) => savePlace(r, { ferry: v === 'true' }) },
   ]
   return (
+    <>
+    <Bases canEdit={canEdit} />
     <ListTable title="Místa" rows={places} cols={cols} canEdit={canEdit} onAdd={add} addLabel="Přidat místo"
       search={r => `${r.name} ${r.city ?? ''}`}
       intro="Start v Planningu = čas nakládky mínus doba jízdy k místu nakládky. Doba platí pro Prahu i Příbram. U trajektu se místo času ukáže ferry. Město slouží k návrhům kopií tras (KN Frankfurt a CHI Frankfurt jsou obě Frankfurt)." />
+    </>
+  )
+}
+
+// Základny: odkud posádka vyjíždí a kam se vrací (CZ, NL, Somaglia…)
+function Bases({ canEdit }: { canEdit: boolean }) {
+  const { bases, toast, reloadLists } = useApp()
+  async function add() {
+    const code = window.prompt('Zkratka základny (třeba SOM), ukáže se v Planningu a u tras')?.trim().toUpperCase()
+    if (!code) return
+    const name = window.prompt('Název (třeba Somaglia)')?.trim() || code
+    const { error } = await supabase.from('bases').insert({ code, name, sort: bases.length + 1 })
+    if (error) toast(explain(error), 'err'); else reloadLists()
+  }
+  async function rename(code: string, name: string) {
+    const { error } = await supabase.from('bases').update({ name }).eq('code', code)
+    if (error) toast(explain(error), 'err'); else reloadLists()
+  }
+  async function remove(code: string) {
+    if (!window.confirm(`Smazat základnu ${code}? Jde to jen tehdy, když ji nemá žádná cesta ani trasa.`)) return
+    const { error } = await supabase.from('bases').delete().eq('code', code)
+    if (error) toast(error.code === '23503' ? `Základnu ${code} ještě používá nějaká cesta nebo trasa.` : explain(error), 'err'); else reloadLists()
+  }
+  return (
+    <section className="list bases">
+      <div className="toolbar">
+        <h1>Základny</h1>
+        <span className="count">{bases.length}</span>
+        {canEdit && <button className="primary" onClick={add}>Přidat základnu</button>}
+      </div>
+      <p className="intro">Odkud posádka vyjíždí a kam se vrací. Výchozí je CZ → CZ; jiná základna (NL, Somaglia…) se nastaví u cesty v Planningu a u trasy v Trasách a cenách, aby se Start, Home a cena braly ze správné varianty.</p>
+      <div className="tablewrap">
+        <table className="grid plain">
+          <thead><tr><th>Zkratka</th><th>Název</th><th /></tr></thead>
+          <tbody>
+            {bases.map(b => (
+              <tr key={b.code}>
+                <td className="ro mono"><strong>{b.code}</strong></td>
+                <td><Text disabled={!canEdit} value={b.name} wide onSave={v => v.trim() && rename(b.code, v.trim())} /></td>
+                <td className="actions">{canEdit && b.code !== 'CZ' && <button className="link small" onClick={() => remove(b.code)}>smazat</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
+import { BaseSelect } from '../lib/BaseSelect'
+import { baseLabel } from '../lib/supabase'
 import { LEGS, composeRoute, copyRoute, createComposedRoute, routeIncomplete, suggestRoutes, totalH, totalKm, totalToll, type LegPick } from '../lib/routes'
 import { todayIso } from '../lib/format'
 import { Text } from './Plan'
@@ -19,12 +21,13 @@ export default function Routes() {
   const canEdit = level('routes') === 'write'
   const [routes, setRoutes] = useState<Route[]>([])
   const [prices, setPrices] = useState<RoutePrice[]>([])
-  const [trips, setTrips] = useState<Pick<Trip, 'id' | 'pup_id' | 'dop_id' | 'trip_date' | 'status' | 'home_base'>[]>([])
+  const [trips, setTrips] = useState<Pick<Trip, 'id' | 'pup_id' | 'dop_id' | 'trip_date' | 'status' | 'base_from' | 'base_to'>[]>([])
   const [q, setQ] = useState('')
   const [copyFrom, setCopyFrom] = useState<Route | null>(null)
   const [newPup, setNewPup] = useState('')
   const [newDop, setNewDop] = useState('')
-  const [newNl, setNewNl] = useState(false)
+  const [newFrom, setNewFrom] = useState('CZ')
+  const [newTo, setNewTo] = useState('CZ')
   const [showMissing, setShowMissing] = useState(true)
 
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
@@ -34,7 +37,7 @@ export default function Routes() {
     const [r, p, t] = await Promise.all([
       supabase.from('routes').select('*'),
       supabase.from('route_prices').select('*').order('sort'),
-      supabase.from('trips').select('id,pup_id,dop_id,trip_date,status,home_base').gte('trip_date', todayIso(-60)).neq('status', 'Canceled'),
+      supabase.from('trips').select('id,pup_id,dop_id,trip_date,status,base_from,base_to').gte('trip_date', todayIso(-60)).neq('status', 'Canceled'),
     ])
     if (r.error) toast(explain(r.error), 'err')
     setRoutes((r.data as Route[]) ?? []); setPrices((p.data as RoutePrice[]) ?? []); setTrips((t.data as Trip[]) ?? [])
@@ -43,35 +46,35 @@ export default function Routes() {
 
   const name = (id: string) => placeBy.get(id)?.name ?? '?'
   const city = (id: string) => (placeBy.get(id)?.city ?? '').trim().toLowerCase()
-  const routeKey = (pup: string, dop: string, base: string) => `${pup}|${dop}|${base}`
-  const routeBy = useMemo(() => new Map(routes.map(r => [routeKey(r.pup_id, r.dop_id, r.home_base), r])), [routes])
+  const routeKey = (pup: string, dop: string, from: string, to: string) => `${pup}|${dop}|${from}|${to}`
+  const routeBy = useMemo(() => new Map(routes.map(r => [routeKey(r.pup_id, r.dop_id, r.base_from, r.base_to), r])), [routes])
 
   // Cesty, ke kterým chybí trasa → návrh kopie ze stejných měst
   const missing = useMemo(() => {
-    const seen = new Map<string, { pup: string; dop: string; base: string; count: number }>()
+    const seen = new Map<string, { pup: string; dop: string; from: string; to: string; count: number }>()
     for (const t of trips) {
-      if (!t.pup_id || !t.dop_id || routeBy.has(routeKey(t.pup_id, t.dop_id, t.home_base))) continue
-      const k = routeKey(t.pup_id, t.dop_id, t.home_base)
-      const cur = seen.get(k) ?? { pup: t.pup_id, dop: t.dop_id, base: t.home_base, count: 0 }
+      if (!t.pup_id || !t.dop_id || routeBy.has(routeKey(t.pup_id, t.dop_id, t.base_from, t.base_to))) continue
+      const k = routeKey(t.pup_id, t.dop_id, t.base_from, t.base_to)
+      const cur = seen.get(k) ?? { pup: t.pup_id, dop: t.dop_id, from: t.base_from, to: t.base_to, count: 0 }
       cur.count++; seen.set(k, cur)
     }
-    return [...seen.values()].map(m => ({ ...m, suggestions: suggest(m.pup, m.dop, m.base), comp: composeRoute(m.pup, m.dop, m.base, routes, placeBy) })).sort((a, b) => b.count - a.count)
+    return [...seen.values()].map(m => ({ ...m, suggestions: suggest(m.pup, m.dop, m.from, m.to), comp: composeRoute(m.pup, m.dop, m.from, m.to, routes, placeBy) })).sort((a, b) => b.count - a.count)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trips, routeBy, places])
 
-  const suggest = (pup: string, dop: string, base: string) => suggestRoutes(pup, dop, base, routes, placeBy)
+  function suggest(pup: string, dop: string, from: string, to: string) { return suggestRoutes(pup, dop, from, to, routes, placeBy) }
 
-  async function composeFor(pup: string, dop: string, base: string, ho: LegPick | null, dh: LegPick | null) {
-    const { error } = await createComposedRoute(pup, dop, base, ho, dh)
+  async function composeFor(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null) {
+    const { error } = await createComposedRoute(pup, dop, from, to, ho, dh)
     if (error) return toast(error, 'err')
     toast('Trasa založena z úseků, doplňte PUP→DOP (km, hodiny, mýto).'); load()
   }
 
-  async function createRoute(pup: string, dop: string, homeBase: string, src?: Route) {
-    const { error } = await copyRoute(src, pup, dop, homeBase, prices)
+  async function createRoute(pup: string, dop: string, from: string, to: string, src?: Route) {
+    const { error } = await copyRoute(src, pup, dop, from, to, prices)
     if (error) return toast(error, 'err')
     toast(src ? `Trasa zkopírována z ${name(src.pup_id)} → ${name(src.dop_id)}. Zkontrolujte km a ceny.` : 'Trasa založena, doplňte úseky a ceny.')
-    setCopyFrom(null); setNewPup(''); setNewDop(''); setNewNl(false); load()
+    setCopyFrom(null); setNewPup(''); setNewDop(''); setNewFrom('CZ'); setNewTo('CZ'); load()
   }
 
   async function resolvePlace(v: string): Promise<string | null> {
@@ -88,7 +91,7 @@ export default function Routes() {
   async function submitNew() {
     const pup = await resolvePlace(newPup), dop = await resolvePlace(newDop)
     if (!pup || !dop) return toast('Vyplňte Pup i Dop.', 'err')
-    createRoute(pup, dop, newNl ? 'NL' : 'CZ', copyFrom ?? undefined)
+    createRoute(pup, dop, newFrom, newTo, copyFrom ?? undefined)
   }
 
   async function saveRoute(r: Route, patch: Partial<Route>) {
@@ -147,7 +150,7 @@ export default function Routes() {
         <span className="count">{routes.length} tras</span>
         <input className="search" placeholder="Hledat (třeba frankfurt rudna)" value={q} onChange={e => setQ(e.target.value)} />
       </div>
-      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin HO→PUP a DOP→HO počítá Planning Start a Home. Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
+      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin Odkud→PUP a DOP→Kam počítá Planning Start a Home (základny CZ, NL, … spravujete v Místech). Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
 
       {canEdit && (
         <div className="newroute">
@@ -155,7 +158,7 @@ export default function Routes() {
           <input className="search" list="dl-places" placeholder="Pup" value={newPup} onChange={e => setNewPup(e.target.value)} />
           <span>→</span>
           <input className="search" list="dl-places" placeholder="Dop" value={newDop} onChange={e => setNewDop(e.target.value)} />
-          <label className="nlcheck" title="Trasa počítaná NL→Pup→Dop→NL místo z domova"><input type="checkbox" checked={newNl} onChange={e => setNewNl(e.target.checked)} /> NL–NL</label>
+          <span className="quiet">odkud</span><BaseSelect value={newFrom} onChange={setNewFrom} /><span className="quiet">kam</span><BaseSelect value={newTo} onChange={setNewTo} />
           <button className="primary" onClick={submitNew}>{copyFrom ? 'Zkopírovat' : 'Založit'}</button>
           {copyFrom && <button className="link" onClick={() => setCopyFrom(null)}>Zrušit kopírování</button>}
         </div>
@@ -169,18 +172,18 @@ export default function Routes() {
           {showMissing && (
             <ul>
               {missing.slice(0, 30).map(m => (
-                <li key={m.pup + m.dop + m.base}>
-                  <span className="mroute">{name(m.pup)} → {name(m.dop)}{m.base === 'NL' && <span className="nltag">NL–NL</span>}</span> <span className="quiet">({m.count}×)</span>
+                <li key={m.pup + m.dop + m.from + m.to}>
+                  <span className="mroute">{name(m.pup)} → {name(m.dop)}{baseLabel(m.from, m.to) && <span className="nltag">{baseLabel(m.from, m.to)}</span>}</span> <span className="quiet">({m.count}×)</span>
                   {canEdit && m.suggestions.map(s => (
-                    <button key={s.route.id} className="chip cust" title={s.why} onClick={() => createRoute(m.pup, m.dop, m.base, s.route)}>
+                    <button key={s.route.id} className="chip cust" title={s.why} onClick={() => createRoute(m.pup, m.dop, m.from, m.to, s.route)}>
                       Zkopírovat z {name(s.route.pup_id)} → {name(s.route.dop_id)}
                     </button>
                   ))}
                   {canEdit && m.suggestions.length === 0 && (m.comp.ho || m.comp.dh) && (
-                    <button className="chip cust" title={`HO→PUP ${m.comp.ho ? 'z ' + m.comp.ho.why : 'chybí'}; DOP→HO ${m.comp.dh ? 'z ' + m.comp.dh.why : 'chybí'}. PUP→DOP doplníte.`}
-                      onClick={() => composeFor(m.pup, m.dop, m.base, m.comp.ho, m.comp.dh)}>Založit z úseků{m.comp.ho && m.comp.dh ? '' : m.comp.ho ? ' (jen HO→PUP)' : ' (jen DOP→HO)'}</button>
+                    <button className="chip cust" title={`${m.from}→PUP ${m.comp.ho ? 'z ' + m.comp.ho.why : 'chybí'}; DOP→${m.to} ${m.comp.dh ? 'z ' + m.comp.dh.why : 'chybí'}. PUP→DOP doplníte.`}
+                      onClick={() => composeFor(m.pup, m.dop, m.from, m.to, m.comp.ho, m.comp.dh)}>Založit z úseků{m.comp.ho && m.comp.dh ? '' : m.comp.ho ? ' (jen Odkud→PUP)' : ' (jen DOP→Kam)'}</button>
                   )}
-                  {canEdit && <button className="link" onClick={() => createRoute(m.pup, m.dop, m.base)}>Založit prázdnou</button>}
+                  {canEdit && <button className="link" onClick={() => createRoute(m.pup, m.dop, m.from, m.to)}>Založit prázdnou</button>}
                   {m.suggestions.length === 0 && !m.comp.ho && !m.comp.dh && <span className="quiet"> Žádná podobná trasa ani úsek. Zkontrolujte města v Místech.</span>}
                 </li>
               ))}
@@ -196,7 +199,7 @@ export default function Routes() {
               <th rowSpan={2}>Pup</th><th rowSpan={2}>Dop</th>
               {LEGS.map(l => <th key={l.key} colSpan={3} className="legh">{l.label}</th>)}
               <th colSpan={3} className="legh">Celkem</th>
-              <th rowSpan={2} title="Trasa počítaná NL→Pup→Dop→NL místo z domova. V Planningu ji dostane cesta se zatrženým NL.">NL–NL</th><th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
+              <th rowSpan={2} title="Odkud posádka vyjíždí a kam se vrací. Výchozí CZ → CZ. Cesta v Planningu si vybere trasu se stejnou dvojicí.">Odkud / Kam</th><th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
             </tr>
             <tr>
               {[...LEGS, { key: 'sum' }].map(l => [<th key={l.key + 'k'}>km</th>, <th key={l.key + 'h'}>h</th>, <th key={l.key + 't'}>mýto</th>])}
@@ -213,8 +216,7 @@ export default function Routes() {
                   <td key={l.key + 't'}>{numCell(r, `${l.key}_toll` as keyof Route)}</td>,
                 ])}
                 <td className="ro num sum">{totalKm(r)}</td><td className="ro num sum">{fmt(totalH(r))}</td><td className="ro num sum">{totalToll(r)}</td>
-                <td className="nlcell"><input type="checkbox" checked={r.home_base === 'NL'} disabled={!canEdit}
-                  onChange={e => saveRoute(r, { home_base: e.target.checked ? 'NL' : 'CZ' })} /></td>
+                <td className="basecell"><BaseSelect value={r.base_from} disabled={!canEdit} onChange={v => saveRoute(r, { base_from: v })} />→<BaseSelect value={r.base_to} disabled={!canEdit} onChange={v => saveRoute(r, { base_to: v })} /></td>
                 <td>{numCell(r, 'rate_h')}</td><td>{numCell(r, 'rate_km')}</td>
                 <td className="prices">
                   {prices.filter(p => p.route_id === r.id).map(p => (
@@ -229,7 +231,7 @@ export default function Routes() {
                 </td>
                 {canEdit && (
                   <td className="actions nowrap">
-                    <button className="link small" onClick={() => { setCopyFrom(r); setNewPup(name(r.pup_id)); setNewDop(''); setNewNl(r.home_base === 'NL'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Kopírovat</button>
+                    <button className="link small" onClick={() => { setCopyFrom(r); setNewPup(name(r.pup_id)); setNewDop(''); setNewFrom(r.base_from); setNewTo(r.base_to); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Kopírovat</button>
                     <button className="ghost" aria-label="Smazat trasu" onClick={() => removeRoute(r)}>×</button>
                   </td>
                 )}

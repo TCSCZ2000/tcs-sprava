@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
+import { baseLabel } from '../lib/supabase'
 import { composeRoute, copyRoute, createComposedRoute, eur, routeIncomplete, suggestRoutes, tripPrice, type LegPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
@@ -33,18 +34,18 @@ export default function Reports() {
   useEffect(() => { if (seePrice) loadRoutes() }, [seePrice])
   const canRoutes = level('routes') === 'write'
   async function adoptRoute(t: Trip, src: Route) {
-    const { error } = await copyRoute(src, t.pup_id!, t.dop_id!, t.home_base, rprices)
+    const { error } = await copyRoute(src, t.pup_id!, t.dop_id!, t.base_from, t.base_to, rprices)
     if (error) return toast(error, 'err')
     toast(`Trasa ${placeBy.get(t.pup_id!)?.name} → ${placeBy.get(t.dop_id!)?.name} založena jako kopie. Zkontrolujte ji v Trasách a cenách.`)
     loadRoutes()
   }
   async function composeFor(t: Trip, ho: LegPick | null, dh: LegPick | null) {
-    const { error } = await createComposedRoute(t.pup_id!, t.dop_id!, t.home_base, ho, dh)
+    const { error } = await createComposedRoute(t.pup_id!, t.dop_id!, t.base_from, t.base_to, ho, dh)
     if (error) return toast(error, 'err')
     toast(`Trasa založena z úseků. Doplňte PUP→DOP v Trasách a cenách (km, hodiny, mýto).`)
     loadRoutes()
   }
-  const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}|${r.home_base}`, r])), [routes])
+  const routeBy = useMemo(() => new Map(routes.map(r => [`${r.pup_id}|${r.dop_id}|${r.base_from}|${r.base_to}`, r])), [routes])
   const [trips, setTrips] = useState<Trip[]>([])
   const [showDone, setShowDone] = useState(true)
   const [doneMonth, setDoneMonth] = useState(todayIso().slice(0, 7))
@@ -113,15 +114,15 @@ export default function Reports() {
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Základna odkud', 'Základna kam', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, t.arr_dop)
-      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.home_base}`)
+      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`)
       const pr = seePrice ? tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && t.dep_dop ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) ?? '0').replace(',', '.')) : null) : null
       const links = byNext.get(t.id) ?? []
       body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs,
-        placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, t.takeover ? 'ano' : '',
+        placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, t.base_from, t.base_to, t.takeover ? 'ano' : '',
         [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', '),
         carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no,
         ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
@@ -195,7 +196,7 @@ export default function Reports() {
                     </td>
                     <td><Text disabled={!ed} value={t.ref_tcs ?? ''} mono time placeholder="A·····"
                       onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
-                    <td className="ro">{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}</td>
+                    <td className="ro">{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{baseLabel(t.base_from, t.base_to) && <span className="nltag">{baseLabel(t.base_from, t.base_to)}</span>}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}</td>
                     <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}</td>
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => (
@@ -221,7 +222,7 @@ export default function Reports() {
                       onSave={v => { const n = num(v); if (n === undefined) return toast('Hodiny pište jako číslo, třeba 14,5.', 'err'); save(t, { hours_manual: n }) }} /></td>
                     <td className="combi">{combiCell(t, byNext.get(t.id) ?? [], ed, v => save(t, { combi: v }), personBy)}</td>
                     {seePrice && (() => {
-                      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.home_base}`)
+                      const route = routeBy.get(`${t.pup_id}|${t.dop_id}|${t.base_from}|${t.base_to}`)
                       const opts = route ? rprices.filter(p => p.route_id === route.id) : []
                       const rq = t.trip_time ? hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, t.dep_dop) : null
                       const reqH = rq ? Number(rq.replace(',', '.')) : null
@@ -237,17 +238,17 @@ export default function Reports() {
                                 {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {eur(Number(p.price))}</option>)}
                               </select>
                             : (() => {
-                                const sug = t.pup_id && t.dop_id ? suggestRoutes(t.pup_id, t.dop_id, t.home_base, routes, placeBy) : []
-                                const comp = t.pup_id && t.dop_id && !sug.length ? composeRoute(t.pup_id, t.dop_id, t.home_base, routes, placeBy) : null
-                                return <span className="ro missingtxt" title={`V Trasách a cenách tahle trasa není${t.home_base === 'NL' ? ' (varianta NL–NL)' : ''}`}>
-                                  chybí trasa{t.home_base === 'NL' ? ' NL' : ''}
+                                const sug = t.pup_id && t.dop_id ? suggestRoutes(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy) : []
+                                const comp = t.pup_id && t.dop_id && !sug.length ? composeRoute(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy) : null
+                                return <span className="ro missingtxt" title={`V Trasách a cenách tahle trasa není${baseLabel(t.base_from, t.base_to) ? ` (varianta ${baseLabel(t.base_from, t.base_to)})` : ''}`}>
+                                  chybí trasa{baseLabel(t.base_from, t.base_to) ? ` ${baseLabel(t.base_from, t.base_to)}` : ''}
                                   {sug.length > 0 && canRoutes && (
                                     <> <button className="link small" title={`Založí trasu jako kopii ${placeBy.get(sug[0].route.pup_id)?.name} → ${placeBy.get(sug[0].route.dop_id)?.name} (${sug[0].why}) včetně sazeb a pevných cen. Příště už se nebude ptát.`}
                                       onClick={() => adoptRoute(t, sug[0].route)}>použít {placeBy.get(sug[0].route.pup_id)?.name} → {placeBy.get(sug[0].route.dop_id)?.name}</button></>
                                   )}
                                   {comp && (comp.ho || comp.dh) && canRoutes && (
-                                    <> <button className="link small" title={`Založí trasu s hotovými úseky: HO→PUP ${comp.ho ? 'z ' + comp.ho.why : 'chybí'}; DOP→HO ${comp.dh ? 'z ' + comp.dh.why : 'chybí'}. Úsek PUP→DOP pak doplníte v Trasách a cenách.`}
-                                      onClick={() => composeFor(t, comp.ho, comp.dh)}>založit z úseků{comp.ho && comp.dh ? '' : comp.ho ? ' (jen HO→PUP)' : ' (jen DOP→HO)'}</button></>
+                                    <> <button className="link small" title={`Založí trasu s hotovými úseky: ${t.base_from}→PUP ${comp.ho ? 'z ' + comp.ho.why : 'chybí'}; DOP→${t.base_to} ${comp.dh ? 'z ' + comp.dh.why : 'chybí'}. Úsek PUP→DOP pak doplníte v Trasách a cenách.`}
+                                      onClick={() => composeFor(t, comp.ho, comp.dh)}>založit z úseků{comp.ho && comp.dh ? '' : comp.ho ? ' (jen Odkud→PUP)' : ' (jen DOP→Kam)'}</button></>
                                   )}
                                 </span>
                               })()}

@@ -331,3 +331,9 @@ td.combi { white-space: nowrap; }
 }
 .totag { font-size: .7rem; font-weight: 700; color: #1a5fb4; border: 1px solid #8fb4e8; border-radius: 4px; padding: 0 .25rem; margin-left: .35rem; vertical-align: 1px; white-space: nowrap; }
 .routegrid tr.incomplete td:nth-child(6), .routegrid tr.incomplete td:nth-child(7), .routegrid tr.incomplete td:nth-child(8) { background: #fff4d6; }
+.baseselect { font-size: .8rem; border: 1px solid var(--line); border-radius: 4px; padding: .1rem .15rem; background: var(--surface); color: #9a5b00; font-weight: 700; max-width: 4.5rem; }
+.baseselect.cz { color: var(--ink-2); font-weight: 400; border-color: transparent; background: transparent; appearance: none; -webkit-appearance: none; padding-right: .15rem; }
+.baseselect.cz:hover, .baseselect.cz:focus { border-color: var(--line); background: var(--surface); }
+td.basecell { white-space: nowrap; padding: 0 .2rem; color: var(--ink-2); }
+.w-base { width: 7rem; }
+.bases { margin-bottom: 1.5rem; } .bases .tablewrap { max-width: 40rem; }
