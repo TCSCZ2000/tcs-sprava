@@ -7,7 +7,7 @@ import { dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from
 import { BaseSelect } from '../lib/BaseSelect'
 import { baseLabel } from '../lib/supabase'
 import { buildRouteIndex, dopHoHours, hoPupHours, plannedHomeIso, plannedStartIso, requestIso, routeVariants } from '../lib/planned'
-import { pickRoute, variantLabel } from '../lib/supabase'
+import { pickRoute } from '../lib/supabase'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
@@ -322,7 +322,7 @@ export default function Plan() {
                 const hp = hoPupHours(t, ridx)
                 const startIso = plannedStartIso(t, ridx, placeBy)
                 const start = pup?.ferry && !t.start_at && !hp ? 'ferry' : fmtRel(startIso, t.trip_date)
-                const startHow = t.start_at ? 'Zadáno ručně' : hp ? `${t.base_from}→PUP ${hp.h} h ${hp.from === 'route' ? `z trasy${chosen?.variant ? ` (${chosen.variant})` : ''}` : hp.from === 'pup' ? 'z jiné trasy ze stejného Pup' : 'z trasy ze stejného města'}${nl ? ` (${nl})` : ''}` : pup?.travel_time ? 'Z doby jízdy v Místech (žádná trasa z tohoto Pup nemá Odkud→PUP)' : 'Chybí trasa i doba jízdy'
+                const startHow = t.start_at ? 'Zadáno ručně' : hp ? `${t.base_from}→PUP ${hp.h} h ${hp.from === 'route' ? `z trasy${chosen?.variant ? ` (varianta ${chosen.variant})` : variants.length > 1 ? ' (základní varianta, upřesní se v Reportech)' : ''}` : hp.from === 'pup' ? 'z jiné trasy ze stejného Pup' : 'z trasy ze stejného města'}${nl ? ` (${nl})` : ''}` : pup?.travel_time ? 'Z doby jízdy v Místech (žádná trasa z tohoto Pup nemá Odkud→PUP)' : 'Chybí trasa i doba jízdy'
                 // Home: ručně > konec Dop + DOP→HO z tras
                 const dh = dopHoHours(t, ridx)
                 const home = fmtRel(plannedHomeIso(t, ridx), t.trip_date)
@@ -425,12 +425,6 @@ export default function Plan() {
                     <td className={'start' + (start === 'ferry' ? ' ferry' : '') + (t.start_at ? ' manual' : '') + (nl ? ' abroad' : '')} title={startHow}>
                       <Text disabled={!canRoute} value={start} time mono placeholder="–"
                         onSave={v => v.trim() ? saveDT('start_at', v, reqIso ?? `${t.trip_date}T00:00:00`) : save(t, { start_at: null })} />
-                      {variants.length > 1 && (
-                        <select className="variantsel" disabled={!canRoute} value={chosen?.id ?? ''} title="Trasa má víc variant (přes Francii, přes Švýcarsko…). Vyberte, kterou posádka jede; platí i pro cenu v Reportech."
-                          onChange={e => save(t, { route_id: e.target.value || null })}>
-                          {variants.map(v => <option key={v.id} value={v.id}>{variantLabel(v.variant)}</option>)}
-                        </select>
-                      )}
                     </td>
                     <td className="start" title={t.dep_dop ? fmtDT(t.dep_dop) : undefined}>
                       <Text disabled={!canRoute} value={fmtRel(t.dep_dop, t.trip_date)} time mono placeholder="–"
