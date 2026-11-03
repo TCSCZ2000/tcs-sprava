@@ -346,8 +346,6 @@ tr.stopsrow .stop .cell.time { width: 6.4rem; min-width: 5.5rem; }
 td.dopcell { white-space: nowrap; }
 td.dopcell .cell { width: auto; }
 .stopsbtn { color: #1a5fb4; font-weight: 600; margin-left: .2rem; white-space: nowrap; }
-.ghost.plus { color: var(--ink-2); font-weight: 700; padding: 0 .3rem; line-height: 1; opacity: .45; margin-left: .1rem; }
-tr:hover .ghost.plus { opacity: 1; }
 td:has(> .cell.person) { white-space: nowrap; }
 .cell.wide { min-width: 10.5rem; }
 .cell.person { min-width: 7.6rem; }
@@ -362,8 +360,27 @@ table.grid { min-width: 0; }
 .plan .cell.time { min-width: 3.6rem; width: 4rem; }
 td.start .cell.time { width: 5.6rem; min-width: 5.2rem; }
 .w-dt { width: 5.8rem; }
-.cellplus { display: flex; align-items: center; gap: .15rem; }
-.cellplus .cell { flex: 1 1 auto; min-width: 0; width: auto; }
-.cellplus.stopline { margin-top: .1rem; }
-.cellplus.stopline .quiet.small { flex: 0 0 auto; width: 2.6rem; }
-.w-plus { width: 1.4rem; padding: 0 !important; text-align: center; }
+
+/* Detail cesty */
+.overlay { position: fixed; inset: 0; background: rgba(20, 28, 36, .45); display: flex; align-items: flex-start; justify-content: center; padding: 4vh 1rem; z-index: 1000; overflow: auto; }
+.dialog { background: var(--surface); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3); width: min(880px, 100%); padding: 1rem 1.25rem 1.1rem; }
+.dialoghead { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
+.dialoghead h2 { margin: 0; font-size: 1.2rem; }
+.formgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .55rem .75rem; }
+.formgrid label { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; color: var(--ink-2); }
+.formgrid label input, .formgrid label select, .formgrid label textarea, .stopsbox input { font-size: .95rem; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: .38rem .5rem; background: var(--surface); font-family: inherit; }
+.formgrid label .baseselect { font-size: .95rem; max-width: none; color: var(--ink); font-weight: 600; border: 1px solid var(--line); background: var(--surface); appearance: auto; -webkit-appearance: auto; padding: .38rem .5rem; }
+.formgrid .span2 { grid-column: span 2; } .formgrid .span4 { grid-column: 1 / -1; }
+.formgrid .checkline { flex-direction: row; align-items: center; gap: .4rem; font-size: .9rem; color: var(--ink); align-self: end; padding-bottom: .4rem; }
+.stopsbox { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .8rem; font-size: .85rem; color: var(--ink-2); padding: .35rem .5rem; border: 1px dashed var(--line); border-radius: 8px; }
+.stopsbox .lbl { font-weight: 600; }
+.stopsbox .stopitem { display: inline-flex; align-items: center; gap: .3rem; }
+.stopsbox .stopitem input { min-width: 12rem; }
+.dialogfoot { display: flex; justify-content: flex-end; align-items: center; gap: 1rem; margin-top: .9rem; }
+.w-dots { width: 1.6rem; padding: 0 !important; text-align: center; }
+.ghost.dots { font-weight: 700; color: var(--ink-2); padding: 0 .3rem; letter-spacing: -1px; }
+tr.trip.highlight > td { box-shadow: inset 0 0 0 2px var(--signal); transition: box-shadow .3s; }
+@media (max-width: 720px) { .formgrid { grid-template-columns: repeat(2, 1fr); } .formgrid .span2 { grid-column: 1 / -1; } }
+.formgrid label input, .formgrid label select, .formgrid label textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.formgrid > * { min-width: 0; }
+.formgrid .checkline input { width: auto; }

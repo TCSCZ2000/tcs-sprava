@@ -8,6 +8,7 @@ import { BaseSelect } from '../lib/BaseSelect'
 import { baseLabel } from '../lib/supabase'
 import { buildRouteIndex, dopHoHours, hoPupHours, plannedHomeIso, plannedStartIso, requestIso, routeVariants } from '../lib/planned'
 import { jobEnd, loadStops, pickRoute, stopsOf, type StopsMap, type TripStop } from '../lib/supabase'
+import { TripDialog, emptyForm, formFromTrip, type TripForm } from './TripDialog'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
@@ -36,8 +37,9 @@ export default function Plan() {
   const [q, setQ] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [stops, setStops] = useState<StopsMap>(new Map())
-  const [showG3, setShowG3] = useState(false)
-  const [addingStop, setAddingStop] = useState<string | null>(null) // id cesty, u které se právě přidává další vykládka
+  const [dlg, setDlg] = useState<{ mode: 'new' } | { mode: 'edit'; trip: Trip } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [highlight, setHighlight] = useState<string | null>(null)
   const [carFilter, setCarFilter] = useState<string | null>(null)
   const [fleetOpen, setFleetOpen] = useState(true)
   const [view, setView] = usePref<'days' | 'list' | 'customers'>('plan.view', 'days')
@@ -123,12 +125,63 @@ export default function Plan() {
     toast(`Objednané auto ${(fresh as { car_no: string | null } | null)?.car_no ?? company} přidáno. SPZ a model doplňte v Autech, až je budete znát.`)
   }
 
-  async function addTrip() {
-    const date = from > todayIso() ? from : todayIso(1)
-    const { data, error } = await supabase.from('trips').insert({ trip_date: date, status: 'HEADS-UP' }).select().single()
-    if (error) return toast(explain(error), 'err')
-    setTrips(cur => (cur.some(x => x.id === (data as Trip).id) ? cur : [...cur, data as Trip]))
-    toast('Cesta přidána')
+  function addTrip() { setDlg({ mode: 'new' }) }
+  function openEdit(t: Trip) { setDlg({ mode: 'edit', trip: t }) }
+
+  // Uložení z detailu: jména → id, cesta + vykládky, zvýraznění řádku
+  async function saveDialog(f: TripForm) {
+    if (!f.trip_date) return toast('Vyplňte datum.', 'err')
+    const tm = f.trip_time.trim() ? normTime(f.trip_time) : null
+    if (tm === undefined) return toast('Čas zapište jako 8:30 nebo 0830.', 'err')
+    const person = (v: string) => { const n = v.trim(); if (!n) return null; const hit = personByName.get(n.toLowerCase()); if (!hit) throw new Error(`„${n}“ není v seznamu lidí. Přidejte ho nejdřív v Lidech.`); return hit.id }
+    setSaving(true)
+    try {
+      const pup = await resolvePlace(f.pup), dop = await resolvePlace(f.dop)
+      if (pup === undefined || dop === undefined) return
+      const stopIds: string[] = []
+      for (const sname of f.stops) { if (!sname.trim()) continue; const id = await resolvePlace(sname); if (id === undefined) return; if (id) stopIds.push(id) }
+      let carId: string | null = null, rental: string | null = null
+      const cn = f.car.trim()
+      if (cn) {
+        carId = carByLabel.get(cn.toLowerCase()) ?? carByLabel.get(cn.split(',')[0].trim().toLowerCase()) ?? null
+        if (!carId) {
+          const r = carCategories.find(k => k.kind === 'rental' && k.name.toLowerCase() === cn.toLowerCase())
+          if (r) rental = r.name
+          else return toast(`Auto „${cn}“ není v seznamu aut. Pro nové auto z půjčovny napište jen název půjčovny, např. Sixt.`, 'err')
+        }
+      }
+      const vals: Partial<Trip> = {
+        trip_date: f.trip_date, trip_time: tm, pup_id: pup, dop_id: dop,
+        guard1_id: person(f.guard1), guard2_id: person(f.guard2), guard3_id: person(f.guard3), car_id: carId,
+        car_origin: f.car_origin || null, car_origin_other: f.car_origin === 'Jiné' ? f.car_origin_other.trim() || null : null,
+        customer: f.customer || null, status: f.status || null, ref_tcs: f.ref_tcs.trim() || null,
+        base_from: f.base_from, base_to: f.base_to, takeover: f.takeover, remarks: f.remarks.trim() || null,
+      }
+      let trip: Trip
+      if (dlg?.mode === 'edit') {
+        const t = dlg.trip
+        const patch = Object.fromEntries(Object.entries(vals).filter(([k, v]) => (t[k as keyof Trip] ?? null) !== (v ?? null) && !(k === 'trip_time' && (t.trip_time ?? '').slice(0, 5) === (v ?? '')))) as Partial<Trip>
+        const { data, error } = Object.keys(patch).length ? await supabase.from('trips').update(patch).eq('id', t.id).select().single() : { data: t, error: null }
+        if (error) return toast(explain(error), 'err')
+        trip = data as Trip
+        setTrips(cur => cur.map(x => (x.id === trip.id ? trip : x)))
+      } else {
+        const { data, error } = await supabase.from('trips').insert(vals).select().single()
+        if (error) return toast(explain(error), 'err')
+        trip = data as Trip
+        setTrips(cur => (cur.some(x => x.id === trip.id) ? cur : [...cur, trip]))
+      }
+      const old = stopsOf(trip, stops)
+      if (old.map(s => s.place_id).join(',') !== stopIds.join(',')) await saveStopIds(trip, stopIds)
+      if (rental) await orderRental(trip, rental)
+      setDlg(null)
+      setHighlight(trip.id)
+      setTimeout(() => document.getElementById('trip-' + trip.id)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
+      setTimeout(() => setHighlight(cur => (cur === trip.id ? null : cur)), 5000)
+      toast(dlg?.mode === 'edit' ? 'Cesta uložena' : 'Cesta přidána')
+    } catch (e) {
+      toast((e as Error).message, 'err')
+    } finally { setSaving(false) }
   }
 
   async function removeTrip(t: Trip) {
@@ -236,7 +289,13 @@ export default function Plan() {
   }
 
   // Guard 3 se ukáže jen když ho někdo má nebo ho chcete přidat
-  const g3 = showG3 || visible.some(t => t.guard3_id)
+  const g3 = visible.some(t => t.guard3_id)
+  // formulář detailu se připraví jen při otevření, aby ho živé změny nepřepisovaly během psaní
+  const dlgInitial = useMemo(() => !dlg ? null : dlg.mode === 'new'
+    ? emptyForm(from > todayIso() ? from : todayIso(1))
+    : formFromTrip(dlg.trip, stopsOf(dlg.trip, stops), { place: id => placeBy.get(id ?? '')?.name ?? '', person: id => personBy.get(id ?? '')?.short_name ?? '', car: id => carBy.get(id ?? '')?.label ?? '' }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dlg])
 
   function toggleStatus(name: string) {
     setHidden(cur => { const n = new Set(cur); n.has(name) ? n.delete(name) : n.add(name); return n })
@@ -311,8 +370,8 @@ export default function Plan() {
         <table className="grid">
           <thead>
             <tr>
-              <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th title="Dop. Další vykládky přidáte tlačítkem + v buňce.">Dop</th>
-              <th>Guard 1</th><th>Guard 2</th>{g3 ? <th>Guard 3</th> : <th className="w-plus" aria-label="Guard 3" />}<th>Auto</th><th className="w-origin" title="Odkud auto vyjíždí: Praha, Příbram, jiné">Odkud</th>
+              <th className="w-dots" aria-label="Detail cesty" /><th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th title="Dop. Další vykládky přidáte tlačítkem + v buňce.">Dop</th>
+              <th>Guard 1</th><th>Guard 2</th>{g3 && <th>Guard 3</th>}<th>Auto</th><th className="w-origin" title="Odkud auto vyjíždí: Praha, Příbram, jiné">Odkud</th>
               <th className="w-ref">Ref. TCS</th><th className="w-base" title="Základna: odkud posádka vyjíždí → kam se vrací (CZ, NL, …). Spravuje se v Místech.">Odkud→Kam</th><th className="w-nl" title="Take-over: cestu přebíráme od cizí posádky. Propíše se do Reportů.">T-O</th><th className="w-dt" title="Čas − Odkud→PUP z trasy (nebo doba jízdy v Místech). Kliknutím přepíšete ručně.">Start</th><th className="w-dt" title="Kdy posádka skončila na Dop (= Odjezd Dop v reportu). Pište 9:45 nebo 3.11. 9:45.">Konec Dop</th><th className="w-dt" title="Konec Dop + DOP→Kam z trasy, nahoru na čtvrthodiny. Kliknutím přepíšete ručně.">Home</th><th>Poznámka</th><th>Změna</th>
               {canCreate && <th className="w-x" aria-label="Akce" />}
             </tr>
@@ -320,13 +379,13 @@ export default function Plan() {
           {days.map(([date, rows]) => (
             <tbody key={date}>
               {view === 'customers' && <tr className="dayrow">
-                <td colSpan={canCreate ? 21 : 20}>
+                <td colSpan={(canCreate ? 21 : 20) + (g3 ? 1 : 0)}>
                   <span className="daylabel">{date === NO_CUSTOMER ? 'Bez zákazníka' : date}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
               </tr>}
               {view === 'days' && <tr className="dayrow">
-                <td colSpan={canCreate ? 21 : 20}>
+                <td colSpan={(canCreate ? 21 : 20) + (g3 ? 1 : 0)}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
@@ -356,8 +415,9 @@ export default function Plan() {
                   save(t, { [key]: r } as Partial<Trip>)
                 }
                 return (
-                  <tr key={t.id} className={'trip' + (view !== 'days' && i > 0 && rows[i - 1].trip_date !== t.trip_date ? ' newday' : '')}
+                  <tr key={t.id} id={'trip-' + t.id} className={'trip' + (view !== 'days' && i > 0 && rows[i - 1].trip_date !== t.trip_date ? ' newday' : '') + (highlight === t.id ? ' highlight' : '')}
                     style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
+                    <td className="w-dots"><button className="ghost dots" title="Detail cesty: další vykládky, Guard 3, základny, take-over…" aria-label="Detail cesty" onClick={() => openEdit(t)}>⋯</button></td>
                     <td className="statuscell">
                       <StatusInput disabled={!canStatus} color={st?.color}
                         value={statusLabel(t.status, t.ref_tcs)} title={t.ref_tcs ? `${t.ref_tcs} · ${t.status ?? 'bez statusu'}` : t.status ?? undefined}
@@ -389,33 +449,11 @@ export default function Plan() {
                     <td><Text disabled={!canRoute} list="dl-places" value={pup?.name ?? ''} wide
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { pup_id: id }) }} /></td>
                     <td className="dopcell">
-                      {(() => {
-                        const st = stopsOf(t, stops)
-                        const ids = st.map(s => s.place_id)
-                        const setAt = async (i: number, v: string) => {
-                          const next = ids.slice()
-                          if (!v.trim()) next.splice(i, 1)
-                          else { const id = await resolvePlace(v); if (!id) return; if (i >= next.length) next.push(id); else next[i] = id }
-                          setAddingStop(null); saveStopIds(t, next)
-                        }
-                        return <>
-                          <span className="cellplus">
-                            <Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
-                              onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} />
-                            {canRoute && addingStop !== t.id && <button className="ghost plus" title="Přidat další vykládku (Dop 2, Dop 3 …)" aria-label="Přidat další vykládku" onClick={() => setAddingStop(t.id)}>+</button>}
-                          </span>
-                          {st.map((s, i) => (
-                            <span key={s.id} className="cellplus stopline"><span className="quiet small">Dop {s.seq}</span>
-                              <Text disabled={!canRoute} list="dl-places" value={placeBy.get(s.place_id)?.name ?? ''} wide placeholder="smazat = prázdné" onSave={v => setAt(i, v)} />
-                            </span>
-                          ))}
-                          {addingStop === t.id && (
-                            <span className="cellplus stopline"><span className="quiet small">Dop {st.length + 2}</span>
-                              <Text list="dl-places" value="" wide placeholder="místo ze seznamu" autoFocus onSave={v => v.trim() ? setAt(ids.length, v) : setAddingStop(null)} />
-                            </span>
-                          )}
-                        </>
-                      })()}
+                      <Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
+                        onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} />
+                      {stopsOf(t, stops).length > 0 && (
+                        <button className="link small stopsbtn" title="Další vykládky – upravíte v detailu cesty" onClick={() => openEdit(t)}>→ {stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name ?? '?').join(', ')}</button>
+                      )}
                     </td>
                     {GUARDS.filter(g => g !== 'guard3_id' || g3).map(g => {
                       const p = personBy.get(t[g] ?? '')
@@ -436,7 +474,6 @@ export default function Plan() {
                         </td>
                       )
                     })}
-                    {!g3 && <td className="w-plus">{canCrew && <button className="ghost plus" title="Přidat Guard 3" aria-label="Přidat Guard 3" onClick={() => setShowG3(true)}>+</button>}</td>}
                     <td className={(clash(t, t.car_id) ? 'clash ' : '') + (t.crew_change?.includes('Auto:') ? 'changed ' : '')
                       + (t.car_id && carUse.get(t.car_id)?.length === 1 ? 'once ' : '') + (car && !car.plate ? 'placeholder' : '')}
                       title={clash(t, t.car_id) ? 'Auto má ten den ještě jinou cestu'
@@ -512,6 +549,14 @@ export default function Plan() {
         )}
       </div>
 
+      {dlg && (
+        <TripDialog
+          title={dlg.mode === 'new' ? 'Nová cesta' : 'Detail cesty'}
+          saving={saving}
+          can={{ route: dlg.mode === 'new' ? canCreate : canRoute, crew: dlg.mode === 'new' ? canCreate : canCrew, status: dlg.mode === 'new' ? canCreate : canStatus }}
+          initial={dlgInitial!}
+          onSave={saveDialog} onClose={() => setDlg(null)} />
+      )}
     </section>
   )
 }
