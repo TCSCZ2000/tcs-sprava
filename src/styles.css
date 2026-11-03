@@ -362,3 +362,8 @@ table.grid { min-width: 0; }
 .plan .cell.time { min-width: 3.6rem; width: 4rem; }
 td.start .cell.time { width: 5.6rem; min-width: 5.2rem; }
 .w-dt { width: 5.8rem; }
+.cellplus { display: flex; align-items: center; gap: .15rem; }
+.cellplus .cell { flex: 1 1 auto; min-width: 0; width: auto; }
+.cellplus.stopline { margin-top: .1rem; }
+.cellplus.stopline .quiet.small { flex: 0 0 auto; width: 2.6rem; }
+.w-plus { width: 1.4rem; padding: 0 !important; text-align: center; }

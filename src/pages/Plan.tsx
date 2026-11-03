@@ -37,6 +37,7 @@ export default function Plan() {
   const [loaded, setLoaded] = useState(false)
   const [stops, setStops] = useState<StopsMap>(new Map())
   const [showG3, setShowG3] = useState(false)
+  const [addingStop, setAddingStop] = useState<string | null>(null) // id cesty, u které se právě přidává další vykládka
   const [carFilter, setCarFilter] = useState<string | null>(null)
   const [fleetOpen, setFleetOpen] = useState(true)
   const [view, setView] = usePref<'days' | 'list' | 'customers'>('plan.view', 'days')
@@ -151,10 +152,7 @@ export default function Plan() {
   }
 
   // Další vykládky: „Dop 2, Dop 3“ → řádky v trip_stops (časy a km z reportu zůstanou u míst, která se nezměnila)
-  async function saveStops(t: Trip, v: string) {
-    const names = v.split(',').map(s => s.trim()).filter(Boolean)
-    const ids: string[] = []
-    for (const n of names) { const id = await resolvePlace(n); if (!id) return; ids.push(id) }
+  async function saveStopIds(t: Trip, ids: string[]) {
     const old = stopsOf(t, stops)
     const rows = ids.map((place_id, i) => { const prev = old.find(s => s.place_id === place_id); return { trip_id: t.id, seq: i + 2, place_id, arr: prev?.arr ?? null, dep: prev?.dep ?? null, km: prev?.km ?? null, note: prev?.note ?? null } })
     const del = await supabase.from('trip_stops').delete().eq('trip_id', t.id)
@@ -314,7 +312,7 @@ export default function Plan() {
           <thead>
             <tr>
               <th className="w-status">Status</th><th className="w-cust">Zákazník</th><th className="w-date">Datum</th><th className="w-time">Čas</th><th>Pup</th><th title="Dop. Další vykládky přidáte tlačítkem + v buňce.">Dop</th>
-              <th>Guard 1</th><th>Guard 2</th>{g3 && <th>Guard 3</th>}<th>Auto</th><th className="w-origin" title="Odkud auto vyjíždí: Praha, Příbram, jiné">Odkud</th>
+              <th>Guard 1</th><th>Guard 2</th>{g3 ? <th>Guard 3</th> : <th className="w-plus" aria-label="Guard 3" />}<th>Auto</th><th className="w-origin" title="Odkud auto vyjíždí: Praha, Příbram, jiné">Odkud</th>
               <th className="w-ref">Ref. TCS</th><th className="w-base" title="Základna: odkud posádka vyjíždí → kam se vrací (CZ, NL, …). Spravuje se v Místech.">Odkud→Kam</th><th className="w-nl" title="Take-over: cestu přebíráme od cizí posádky. Propíše se do Reportů.">T-O</th><th className="w-dt" title="Čas − Odkud→PUP z trasy (nebo doba jízdy v Místech). Kliknutím přepíšete ručně.">Start</th><th className="w-dt" title="Kdy posádka skončila na Dop (= Odjezd Dop v reportu). Pište 9:45 nebo 3.11. 9:45.">Konec Dop</th><th className="w-dt" title="Konec Dop + DOP→Kam z trasy, nahoru na čtvrthodiny. Kliknutím přepíšete ručně.">Home</th><th>Poznámka</th><th>Změna</th>
               {canCreate && <th className="w-x" aria-label="Akce" />}
             </tr>
@@ -322,13 +320,13 @@ export default function Plan() {
           {days.map(([date, rows]) => (
             <tbody key={date}>
               {view === 'customers' && <tr className="dayrow">
-                <td colSpan={(canCreate ? 20 : 19) + (g3 ? 1 : 0)}>
+                <td colSpan={canCreate ? 21 : 20}>
                   <span className="daylabel">{date === NO_CUSTOMER ? 'Bez zákazníka' : date}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
               </tr>}
               {view === 'days' && <tr className="dayrow">
-                <td colSpan={(canCreate ? 20 : 19) + (g3 ? 1 : 0)}>
+                <td colSpan={canCreate ? 21 : 20}>
                   <span className="daylabel">{dateLabel(date)}</span>
                   <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
                 </td>
@@ -391,12 +389,33 @@ export default function Plan() {
                     <td><Text disabled={!canRoute} list="dl-places" value={pup?.name ?? ''} wide
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { pup_id: id }) }} /></td>
                     <td className="dopcell">
-                      <Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
-                        onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} />
-                      {(() => { const st = stopsOf(t, stops); const names = st.map(s => placeBy.get(s.place_id)?.name ?? '?').join(', ')
-                        return st.length
-                          ? <button className="link small stopsbtn" title="Další vykládky (kliknutím upravíte)" disabled={!canRoute} onClick={() => { const v = window.prompt('Další vykládky po Dop, oddělené čárkou (prázdné = žádné)', names); if (v !== null) saveStops(t, v) }}>→ {names}</button>
-                          : canRoute && <button className="ghost plus" title="Přidat další vykládky (Dop 2, Dop 3 …)" aria-label="Přidat další vykládky" onClick={() => { const v = window.prompt('Další vykládky po Dop, oddělené čárkou (třeba Budapest, Calais)'); if (v) saveStops(t, v) }}>+</button> })()}
+                      {(() => {
+                        const st = stopsOf(t, stops)
+                        const ids = st.map(s => s.place_id)
+                        const setAt = async (i: number, v: string) => {
+                          const next = ids.slice()
+                          if (!v.trim()) next.splice(i, 1)
+                          else { const id = await resolvePlace(v); if (!id) return; if (i >= next.length) next.push(id); else next[i] = id }
+                          setAddingStop(null); saveStopIds(t, next)
+                        }
+                        return <>
+                          <span className="cellplus">
+                            <Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide
+                              onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { dop_id: id }) }} />
+                            {canRoute && addingStop !== t.id && <button className="ghost plus" title="Přidat další vykládku (Dop 2, Dop 3 …)" aria-label="Přidat další vykládku" onClick={() => setAddingStop(t.id)}>+</button>}
+                          </span>
+                          {st.map((s, i) => (
+                            <span key={s.id} className="cellplus stopline"><span className="quiet small">Dop {s.seq}</span>
+                              <Text disabled={!canRoute} list="dl-places" value={placeBy.get(s.place_id)?.name ?? ''} wide placeholder="smazat = prázdné" onSave={v => setAt(i, v)} />
+                            </span>
+                          ))}
+                          {addingStop === t.id && (
+                            <span className="cellplus stopline"><span className="quiet small">Dop {st.length + 2}</span>
+                              <Text list="dl-places" value="" wide placeholder="místo ze seznamu" autoFocus onSave={v => v.trim() ? setAt(ids.length, v) : setAddingStop(null)} />
+                            </span>
+                          )}
+                        </>
+                      })()}
                     </td>
                     {GUARDS.filter(g => g !== 'guard3_id' || g3).map(g => {
                       const p = personBy.get(t[g] ?? '')
@@ -414,10 +433,10 @@ export default function Plan() {
                               save(t, { [g]: hit.id } as Partial<Trip>)
                             }} />
                           {d && <span className={'doc ' + d} aria-hidden>●</span>}
-                          {g === 'guard2_id' && !g3 && canCrew && <button className="ghost plus" title="Přidat Guard 3" aria-label="Přidat Guard 3" onClick={() => setShowG3(true)}>+</button>}
                         </td>
                       )
                     })}
+                    {!g3 && <td className="w-plus">{canCrew && <button className="ghost plus" title="Přidat Guard 3" aria-label="Přidat Guard 3" onClick={() => setShowG3(true)}>+</button>}</td>}
                     <td className={(clash(t, t.car_id) ? 'clash ' : '') + (t.crew_change?.includes('Auto:') ? 'changed ' : '')
                       + (t.car_id && carUse.get(t.car_id)?.length === 1 ? 'once ' : '') + (car && !car.plate ? 'placeholder' : '')}
                       title={clash(t, t.car_id) ? 'Auto má ten den ještě jinou cestu'
@@ -499,17 +518,17 @@ export default function Plan() {
 
 function Text(props: {
   value: string; onSave: (v: string) => void; disabled?: boolean; list?: string; type?: string
-  placeholder?: string; wide?: boolean; mono?: boolean; time?: boolean; person?: boolean; carcell?: boolean
+  placeholder?: string; wide?: boolean; mono?: boolean; time?: boolean; person?: boolean; carcell?: boolean; autoFocus?: boolean
 }) {
   const [v, setV] = useState(props.value)
   useEffect(() => setV(props.value), [props.value])
   return (
-    <input
+    <input autoFocus={props.autoFocus}
       className={'cell' + (props.wide ? ' wide' : '') + (props.mono ? ' mono' : '') + (props.time ? ' time' : '') + (props.person ? ' person' : '') + (props.carcell ? ' carcell' : '')}
       value={v} type={props.type ?? 'text'} list={props.list} placeholder={props.placeholder}
       disabled={props.disabled}
       onChange={e => setV(e.target.value)}
-      onBlur={() => { if (v !== props.value) props.onSave(v) }}
+      onBlur={() => { if (v !== props.value || props.autoFocus) props.onSave(v) }}
       onKeyDown={e => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
         if (e.key === 'Escape') { setV(props.value); (e.target as HTMLInputElement).blur() }
