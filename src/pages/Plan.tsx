@@ -7,7 +7,7 @@ import { dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from
 import { BaseSelect } from '../lib/BaseSelect'
 import { baseLabel } from '../lib/supabase'
 import { buildRouteIndex, dopHoHours, hoPupHours, plannedHomeIso, plannedStartIso, requestIso, routeVariants } from '../lib/planned'
-import { jobEnd, loadStops, pickRoute, stopsOf, type StopsMap, type TripStop } from '../lib/supabase'
+import { KIND_LABEL, jobEnd, loadStops, pickRoute, stopsOf, tripKind, type StopsMap, type TripStop } from '../lib/supabase'
 import { TripDialog, emptyForm, formFromTrip, type TripForm } from './TripDialog'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
@@ -156,6 +156,7 @@ export default function Plan() {
         car_origin: f.car_origin || null, car_origin_other: f.car_origin === 'Jiné' ? f.car_origin_other.trim() || null : null,
         customer: f.customer || null, status: f.status || null, ref_tcs: f.ref_tcs.trim() || null,
         base_from: f.base_from, base_to: f.base_to, takeover: f.takeover, remarks: f.remarks.trim() || null,
+        kind: (f.kind || null) as Trip['kind'],
       }
       let trip: Trip
       if (dlg?.mode === 'edit') {
@@ -277,9 +278,9 @@ export default function Plan() {
   const fleet = cars.filter(c => inPlanning(c, carCategories))
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Status', 'Ref. TCS', 'Zákazník', 'Pup', 'Dop', 'Další Dop', 'Guard 1', 'Guard 2', 'Guard 3', 'Auto', 'Auto z', 'Výjezd z', 'Návrat do', 'Take-over', 'Start', 'Konec Dop', 'Home', 'Poznámka', 'Změna']
+    const head: Cell[] = ['Datum', 'Čas', 'Status', 'Ref. TCS', 'Zákazník', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Guard 1', 'Guard 2', 'Guard 3', 'Auto', 'Auto z', 'Výjezd z', 'Návrat do', 'Take-over', 'Start', 'Konec Dop', 'Home', 'Poznámka', 'Změna']
     const rows: Cell[][] = visible.map(t => [
-      t.trip_date.split('-').reverse().join('.'), hm(t.trip_time), t.status, t.ref_tcs, t.customer,
+      t.trip_date.split('-').reverse().join('.'), hm(t.trip_time), t.status, t.ref_tcs, t.customer, KIND_LABEL[tripKind(t)],
       placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name).join(', '),
       ...GUARDS.map(g => personBy.get(t[g] ?? '')?.short_name), carBy.get(t.car_id ?? '')?.label,
       t.car_origin === 'Jiné' ? t.car_origin_other : t.car_origin, t.base_from, t.base_to, t.takeover ? 'ano' : '',
@@ -446,7 +447,7 @@ export default function Plan() {
                       onSave={v => { const d = parseDay(v, t.trip_date); if (!d) return toast('Datum zapište jako 3.11. nebo 3.11.2026.', 'err'); save(t, { trip_date: d }) }} /></td>
                     <td><Text disabled={!canRoute} value={hm(t.trip_time)} placeholder="hh:mm" time
                       onSave={v => { const n = normTime(v); if (n === undefined) return toast('Čas zapište jako 8:30 nebo 0830.', 'err'); save(t, { trip_time: n }) }} /></td>
-                    <td><Text disabled={!canRoute} list="dl-places" value={pup?.name ?? ''} wide
+                    <td className="pupcell">{tripKind(t) === 'transport' && <span className="kindicon" title={KIND_LABEL.transport}>🚐</span>}<Text disabled={!canRoute} list="dl-places" value={pup?.name ?? ''} wide
                       onSave={async v => { const id = await resolvePlace(v); if (id !== undefined) save(t, { pup_id: id }) }} /></td>
                     <td className="dopcell">
                       <Text disabled={!canRoute} list="dl-places" value={placeBy.get(t.dop_id ?? '')?.name ?? ''} wide

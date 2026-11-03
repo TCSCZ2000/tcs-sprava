@@ -10,12 +10,12 @@ import { todayIso } from '../lib/format'
 export type TripForm = {
   trip_date: string; trip_time: string; pup: string; dop: string; stops: string[]
   guard1: string; guard2: string; guard3: string; car: string; car_origin: string; car_origin_other: string
-  customer: string; status: string; ref_tcs: string; base_from: string; base_to: string; takeover: boolean; remarks: string
+  customer: string; status: string; ref_tcs: string; base_from: string; base_to: string; takeover: boolean; remarks: string; kind: string
 }
 
 export function emptyForm(date: string): TripForm {
   return { trip_date: date, trip_time: '', pup: '', dop: '', stops: [], guard1: '', guard2: '', guard3: '', car: '', car_origin: '', car_origin_other: '',
-    customer: '', status: 'HEADS-UP', ref_tcs: '', base_from: 'CZ', base_to: 'CZ', takeover: false, remarks: '' }
+    customer: '', status: 'HEADS-UP', ref_tcs: '', base_from: 'CZ', base_to: 'CZ', takeover: false, remarks: '', kind: '' }
 }
 
 export function TripDialog({ title, initial, onSave, onClose, saving, can }: {
@@ -79,7 +79,13 @@ export function TripDialog({ title, initial, onSave, onClose, saving, can }: {
           </label>
           <label title="Základna, ze které posádka vyjíždí (CZ = Praha/Příbram)">Výjezd z<BaseSelect value={f.base_from} disabled={!can.route} onChange={v => set('base_from', v)} /></label>
           <label title="Základna, kam se posádka vrací">Návrat do<BaseSelect value={f.base_to} disabled={!can.route} onChange={v => set('base_to', v)} /></label>
-          <label className="checkline span2"><input type="checkbox" checked={f.takeover} disabled={!can.route} onChange={e => set('takeover', e.target.checked)} /> Take-over (přebíráme od cizí posádky)</label>
+          <label title="Doprovod je standard. Přeprava dodávkou: JTi vždy, TCS občas. „podle zákazníka“ = JTi přeprava, ostatní doprovod.">Druh
+            <select value={f.kind} disabled={!can.route} onChange={e => set('kind', e.target.value)}>
+              <option value="">podle zákazníka ({(f.customer.toUpperCase().startsWith('JTI') ? 'přeprava' : 'doprovod')})</option>
+              <option value="escort">Doprovod</option><option value="transport">Přeprava dodávkou 🚐</option>
+            </select>
+          </label>
+          <label className="checkline"><input type="checkbox" checked={f.takeover} disabled={!can.route} onChange={e => set('takeover', e.target.checked)} /> Take-over (přebíráme od cizí posádky)</label>
           <label className="span4">Poznámka<textarea rows={2} value={f.remarks} onChange={e => set('remarks', e.target.value)} /></label>
         </div>
         <div className="dialogfoot">
@@ -99,7 +105,7 @@ export function formFromTrip(t: Trip, stops: TripStop[], name: {
     trip_date: t.trip_date, trip_time: t.trip_time?.slice(0, 5) ?? '', pup: name.place(t.pup_id), dop: name.place(t.dop_id), stops: stops.map(s => name.place(s.place_id)),
     guard1: name.person(t.guard1_id), guard2: name.person(t.guard2_id), guard3: name.person(t.guard3_id), car: name.car(t.car_id),
     car_origin: t.car_origin ?? '', car_origin_other: t.car_origin_other ?? '', customer: t.customer ?? '', status: t.status ?? '', ref_tcs: t.ref_tcs ?? '',
-    base_from: t.base_from, base_to: t.base_to, takeover: t.takeover, remarks: t.remarks ?? '',
+    base_from: t.base_from, base_to: t.base_to, takeover: t.takeover, remarks: t.remarks ?? '', kind: t.kind ?? '',
   }
 }
 

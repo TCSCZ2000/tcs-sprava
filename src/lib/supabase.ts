@@ -48,6 +48,7 @@ export interface Trip {
   base_to: string
   combi: boolean | null
   takeover: boolean
+  kind: 'escort' | 'transport' | null
 }
 export interface Customer { name: string; sort: number; active: boolean }
 export interface Route {
@@ -76,6 +77,9 @@ export function pickRoute<R extends { id: string; variant: string }>(t: Pick<Tri
   return (t.route_id && variants.find(r => r.id === t.route_id)) || variants.find(r => r.variant === '') || variants[0]
 }
 export const variantLabel = (v: string) => v || 'základní'
+// Druh cesty: doprovod (standard) nebo přeprava dodávkou; když není zadán, JTi* = přeprava, ostatní doprovod
+export const tripKind = (t: Pick<Trip, 'kind' | 'customer'>) => t.kind ?? ((t.customer ?? '').toUpperCase().startsWith('JTI') ? 'transport' : 'escort')
+export const KIND_LABEL = { escort: 'Doprovod', transport: 'Přeprava dodávkou' } as const
 export interface Base { code: string; name: string; sort: number }
 export const baseLabel = (from: string, to: string) => from === 'CZ' && to === 'CZ' ? '' : `${from} → ${to}`
 export interface HoursExtra { id: string; person_id: string; work_date: string; kind: 'mimo' | 'pevne'; hours: number; note: string | null }

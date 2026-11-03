@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
-import { baseLabel, groupRoutes, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
+import { KIND_LABEL, baseLabel, groupRoutes, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
 import { composeRoute, copyRoute, createComposedRoute, eur, routeIncomplete, suggestRoutes, tripPrice, type LegPick, type MidPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
@@ -127,7 +127,7 @@ export default function Reports() {
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const end = jobEnd(t, stops)
@@ -135,7 +135,7 @@ export default function Reports() {
       const route = pickRoute(t, routeBy.get(tripRouteKey(t, stopsOf(t, stops))))
       const pr = seePrice ? tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && end ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) ?? '0').replace(',', '.')) : null) : null
       const links = byNext.get(t.id) ?? []
-      body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs,
+      body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs, KIND_LABEL[tripKind(t)],
         placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, stopsOf(t, stops).map(s => `${placeBy.get(s.place_id)?.name} (${fmtDT(s.arr)} – ${fmtDT(s.dep)}, ${s.km ?? '?'} km)`).join('; '), t.base_from, t.base_to, t.takeover ? 'ano' : '',
         [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', '),
         carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no,
@@ -213,7 +213,7 @@ export default function Reports() {
                     </td>
                     <td><Text disabled={!ed} value={t.ref_tcs ?? ''} mono time placeholder="A·····"
                       onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
-                    <td className="ro">{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{tstops.map(s => ` → ${placeBy.get(s.place_id)?.name ?? '?'}`).join('')}{baseLabel(t.base_from, t.base_to) && <span className="nltag">{baseLabel(t.base_from, t.base_to)}</span>}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}</td>
+                    <td className="ro">{tripKind(t) === 'transport' && <span className="kindicon" title={KIND_LABEL.transport}>🚐 </span>}{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{tstops.map(s => ` → ${placeBy.get(s.place_id)?.name ?? '?'}`).join('')}{baseLabel(t.base_from, t.base_to) && <span className="nltag">{baseLabel(t.base_from, t.base_to)}</span>}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}</td>
                     <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}</td>
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => (
