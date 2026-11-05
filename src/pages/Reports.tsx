@@ -153,6 +153,9 @@ export default function Reports() {
     const order = [...customers.map(c => c.name), NO_CUSTOMER]
     const m = new Map<string, Trip[]>(order.map(c => [c, []]))
     for (const t of trips) if (!hiddenCust.has(t.customer ?? NO_CUSTOMER)) m.get(t.customer ?? NO_CUSTOMER)?.push(t)
+    // pořadí jako čísla reportů: podle příjezdu domů; bez příjezdu podle data a objednaného času
+    const key = (t: Trip) => t.arr_home ?? `${t.trip_date}T${t.trip_time ?? '00:00'}`
+    for (const r of m.values()) r.sort((a, b) => key(a).localeCompare(key(b)))
     return [...m.entries()].filter(([, r]) => r.length)
   }, [trips, customers, hiddenCust])
 
