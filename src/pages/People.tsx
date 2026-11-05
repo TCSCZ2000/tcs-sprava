@@ -6,7 +6,6 @@ import { exportXlsx, printPdf } from '../lib/export'
 import ListTable, { type Col } from './ListTable'
 import { PersonDialog } from './PersonDialog'
 import { DocsImport } from './DocsImport'
-import { SuppliersPanel } from './SupplierDialog'
 
 // Lidé: seznam s rychlou editací, detail (⋯) s doklady a cestami
 export function People() {
@@ -17,7 +16,6 @@ export function People() {
   const [onlyActive, setOnlyActive] = useState(true)
   const [open, setOpen] = useState<string | null>(null)
   const [imp, setImp] = useState(false)
-  const [showSup, setShowSup] = useState(false)
 
   // nejbližší platnost dokladu daného druhu (potvrzené mají přednost)
   const best = useMemo(() => {
@@ -92,7 +90,7 @@ export function People() {
     { key: 'phone', label: 'Telefon', get: r => r.phone ?? '', save: (r, v) => savePerson(r, { phone: v || null }), mono: true },
     { key: 'birth', label: 'Narozen', type: 'date', get: r => r.birth_date ?? '', save: (r, v) => savePerson(r, { birth_date: v || null }) },
     { key: 'nat', label: 'Národnost', get: r => r.nationality ?? '', save: (r, v) => savePerson(r, { nationality: v || null }) },
-    { key: 'sup', label: 'Dodavatel', get: r => r.supplier ?? 'TCS' },
+    { key: 'sup', label: 'Dodavatel', get: r => r.supplier ?? '' },
   ]
   if (seeDocs) {
     cols.push(
@@ -107,7 +105,7 @@ export function People() {
   function excel() {
     const head = ['Jméno', 'Příjmení', 'V rozpisu', 'Telefon', 'E-mail', 'Narozen', 'Národnost', 'Dodavatel', ...(seeDocs ? ['OP číslo', 'OP do', 'Pas číslo', 'Pas do', 'ŘP do'] : []), 'Aktivní', 'Poznámka']
     const num = (p: Person, kind: string) => pdocs.filter(d => d.person_id === p.id && d.kind === kind && d.number).sort((a, b) => (b.valid_to ?? '').localeCompare(a.valid_to ?? ''))[0]?.number ?? ''
-    const body = rows.map(p => [p.first_name, p.last_name, p.short_name, p.phone ?? '', p.email ?? '', p.birth_date ?? '', p.nationality ?? '', p.supplier ?? 'TCS',
+    const body = rows.map(p => [p.first_name, p.last_name, p.short_name, p.phone ?? '', p.email ?? '', p.birth_date ?? '', p.nationality ?? '', p.supplier ?? '',
       ...(seeDocs ? [num(p, 'op'), dateOf(p, 'op'), num(p, 'pas'), dateOf(p, 'pas'), dateOf(p, 'rp')] : []), p.active ? 'ano' : 'ne', p.note ?? ''])
     exportXlsx(`Lide_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: 'Lidé', rows: [head, ...body], widths: [12, 14, 14, 16, 22, 11, 10, 12, 11, 12, 11, 11, 7, 30] }])
   }
@@ -124,9 +122,8 @@ export function People() {
           <button className="link" onClick={excel}>Excel</button>
           <button className="link" onClick={printPdf}>Tisk / PDF</button>
           {editDocs && <button className="link" onClick={() => setImp(true)}>Import dokladů ze složky</button>}
-          <button className="link" onClick={() => setShowSup(s => !s)}>{showSup ? 'Zavřít dodavatele' : 'Dodavatelé'}</button>
         </>}
-        filters={<>{showSup && <SuppliersPanel />}<div className="filterrow">
+        filters={<><div className="filterrow">
           <label className="check"><input type="checkbox" checked={onlyActive} onChange={e => setOnlyActive(e.target.checked)} />Jen aktivní ({people.filter(p => p.active).length} z {people.length})</label>
           {canEdit && <><button className="link small" onClick={bulkInactive}>vyřadit, kdo nejel od…</button><button className="link small" onClick={bulkActive}>všechny aktivní</button></>}
           {seeDocs && unsortedTotal > 0 && <span className="quiet small">{unsortedTotal} dokladů čeká na zařazení</span>}

@@ -18,8 +18,13 @@ export interface Person {
   supplier: string | null   // výchozí dodavatel (SEMS); null = TCS
 }
 // Dodavatel posádek: SEMS = jen lidé (hodiny); jiní mohou dát i auto (km × sazba + mýto)
-export interface Supplier { name: string; provides_car: boolean; rate_h: number | null; rate_km: number | null; note: string | null; sort: number; active: boolean }
-export const SUPPLIER_OWN = 'TCS'
+export interface Supplier {
+  name: string; provides_car: boolean; rate_h: number | null; rate_km: number | null; note: string | null; sort: number; active: boolean
+  ico: string | null; dic: string | null; address: string | null; email: string | null; phone: string | null; web: string | null; payment_terms: string | null
+}
+export interface SupplierContact { id: string; supplier: string; name: string; role: string | null; phone: string | null; email: string | null; note: string | null; sort: number }
+export const NO_SUPPLIER = ''   // člověk bez dodavatele (vlastní)
+export const supplierLabel = (s: string | null | undefined) => s || 'bez dodavatele'
 // Doklad člověka: jeden řádek na doklad (OP, pas, ŘP, …), soubor v bucketu people-files; status 'navrzeno' = typ/číslo/platnost navrhl Claude
 export interface PersonDoc {
   id: string; person_id: string; kind: string; name: string | null; number: string | null; valid_to: string | null
@@ -78,10 +83,10 @@ export interface Trip {
   guard1_supplier: string | null; guard2_supplier: string | null; guard3_supplier: string | null   // null = podle člověka
   car_supplier: string | null; supplier_km: number | null; supplier_toll: number | null             // auto od dodavatele
 }
-// Dodavatel člena posádky na dané cestě: přepsaný u cesty, jinak výchozí u člověka, jinak TCS
+// Dodavatel člena posádky na dané cestě: přepsaný u cesty, jinak výchozí u člověka, jinak bez dodavatele
 export function supplierOf(t: Pick<Trip, 'guard1_id' | 'guard2_id' | 'guard3_id' | 'guard1_supplier' | 'guard2_supplier' | 'guard3_supplier'>, personId: string, personBy: Map<string, Person>): string {
   const slot = t.guard1_id === personId ? t.guard1_supplier : t.guard2_id === personId ? t.guard2_supplier : t.guard3_id === personId ? t.guard3_supplier : null
-  return slot ?? personBy.get(personId)?.supplier ?? SUPPLIER_OWN
+  return slot ?? personBy.get(personId)?.supplier ?? NO_SUPPLIER
 }
 export interface Customer { name: string; sort: number; active: boolean }
 export interface Route {

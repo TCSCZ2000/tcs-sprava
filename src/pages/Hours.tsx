@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { supabase, supplierOf, SUPPLIER_OWN, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
+import { supabase, supplierOf, supplierLabel, NO_SUPPLIER, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, todayIso } from '../lib/format'
@@ -57,7 +57,7 @@ export default function Hours() {
     // řádek = člověk × dodavatel (člověk dodaný na jedné cestě jiným dodavatelem je v seznamu toho dodavatele)
     const m = new Map<string, Row>()
     const row = (p: string, sup: string) => { const k = p + '|' + sup; if (!m.has(k)) m.set(k, { key: k, person: p, supplier: sup, segs: [], extra: [], raw: 0, real: 0, mimo: 0, pevne: 0, total: 0, pending: 0 }); return m.get(k)! }
-    const defSup = (p: string) => personBy.get(p)?.supplier ?? SUPPLIER_OWN
+    const defSup = (p: string) => personBy.get(p)?.supplier ?? NO_SUPPLIER
     for (const s of segs.values()) {
       if (!inMonth(s.trip)) continue
       const sup = supplierOf(s.trip, s.person, personBy)
@@ -66,7 +66,7 @@ export default function Hours() {
     }
     for (const e of extra) { const r = row(e.person_id, defSup(e.person_id)); r.extra.push(e); if (e.kind === 'mimo') r.mimo += Number(e.hours); else r.pevne += Number(e.hours) }
     for (const r of m.values()) { r.raw = round2(r.raw); r.real = round2(r.real); r.total = round2(r.real + r.mimo + r.pevne); r.segs.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '')) }
-    const supSort = (n: string) => suppliers.find(x => x.name === n)?.sort ?? 50
+    const supSort = (n: string) => n === NO_SUPPLIER ? 99 : suppliers.find(x => x.name === n)?.sort ?? 50
     return [...m.values()].filter(r => r.segs.length || r.extra.length).sort((a, b) => supSort(a.supplier) - supSort(b.supplier) || a.supplier.localeCompare(b.supplier) || (personBy.get(a.person)?.short_name ?? '').localeCompare(personBy.get(b.person)?.short_name ?? '', 'cs'))
   }, [segs, extra, personBy, suppliers, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -102,13 +102,13 @@ export default function Hours() {
 
   function excel() {
     const summary: Cell[][] = [['Dodavatel', 'Jméno', 'Hodiny z reportů', 'Skutečné', 'Úspora', 'Mimo report', 'Pevné hodiny', 'Celkem']]
-    for (const r of rows) summary.push([r.supplier, name(r.person), r.raw, r.real, round2(r.raw - r.real), r.mimo, r.pevne, r.total])
-    for (const sup of [...new Set(rows.map(r => r.supplier))]) summary.push([sup, 'CELKEM ' + sup, sum('raw', sup), sum('real', sup), round2(sum('raw', sup) - sum('real', sup)), sum('mimo', sup), sum('pevne', sup), sum('total', sup)])
+    for (const r of rows) summary.push([supplierLabel(r.supplier), name(r.person), r.raw, r.real, round2(r.raw - r.real), r.mimo, r.pevne, r.total])
+    for (const sup of [...new Set(rows.map(r => r.supplier))]) summary.push([supplierLabel(sup), 'CELKEM ' + supplierLabel(sup), sum('raw', sup), sum('real', sup), round2(sum('raw', sup) - sum('real', sup)), sum('mimo', sup), sum('pevne', sup), sum('total', sup)])
     summary.push(['', 'CELKEM', sum('raw'), sum('real'), round2(sum('raw') - sum('real')), sum('mimo'), sum('pevne'), sum('total')])
     const detail: Cell[][] = [['Dodavatel', 'Jméno', '#Report', 'Ref.', 'Od', 'Do (report)', 'Do (pro hodiny)', 'Hodiny', 'Poznámka']]
     for (const r of rows) {
-      for (const s of r.segs) detail.push([r.supplier, name(r.person), s.trip.report_no, s.trip.ref_tcs, fmtDT(s.start), fmtDT(s.end), fmtDT(s.endAdj ?? s.end), s.hours, adjNote(s)])
-      for (const e of r.extra) detail.push([r.supplier, name(r.person), '', KINDS.find(k => k.key === e.kind)?.label, e.work_date, '', '', Number(e.hours), e.note])
+      for (const s of r.segs) detail.push([supplierLabel(r.supplier), name(r.person), s.trip.report_no, s.trip.ref_tcs, fmtDT(s.start), fmtDT(s.end), fmtDT(s.endAdj ?? s.end), s.hours, adjNote(s)])
+      for (const e of r.extra) detail.push([supplierLabel(r.supplier), name(r.person), '', KINDS.find(k => k.key === e.kind)?.label, e.work_date, '', '', Number(e.hours), e.note])
     }
     const cars: Cell[][] = [['Dodavatel', 'Datum', '#Report', 'Ref.', 'Trasa', 'Km', 'Kč/km', 'Mýto', 'Celkem Kč']]
     for (const t of supCars) cars.push([t.car_supplier, t.trip_date.split('-').reverse().join('.'), t.report_no, t.ref_tcs, `${placeBy.get(t.pup_id ?? '')?.name ?? '?'} → ${placeBy.get(t.dop_id ?? '')?.name ?? '?'}`, t.supplier_km, suppliers.find(x => x.name === t.car_supplier)?.rate_km ?? '', t.supplier_toll, supCarAmount(t)])
@@ -168,7 +168,7 @@ export default function Hours() {
             {rows.map((r, i) => (
               <Fragment key={r.key}>
                 {multiSup && (i === 0 || rows[i - 1].supplier !== r.supplier) && (
-                  <tr className="supsection"><td colSpan={8}><strong>{r.supplier}</strong><span className="quiet small"> · {rows.filter(x => x.supplier === r.supplier).length} lidí · {fmtH(sum('total', r.supplier))} h</span></td></tr>
+                  <tr className="supsection"><td colSpan={8}><strong>{supplierLabel(r.supplier)}</strong><span className="quiet small"> · {rows.filter(x => x.supplier === r.supplier).length} lidí · {fmtH(sum('total', r.supplier))} h</span></td></tr>
                 )}
                 <tr className={open.has(r.key) ? 'open' : ''}>
                   <td><button className="link" onClick={() => toggle(r.key)}>{open.has(r.key) ? '▾' : '▸'} {name(r.person)}</button>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { supabase, SUPPLIER_OWN, type Person, type PersonDoc } from '../lib/supabase'
+import { supabase, type Person, type PersonDoc } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { docState } from '../lib/format'
 import { dmyOf } from '../lib/service'
@@ -53,8 +53,9 @@ export function PersonDialog({ person, onClose }: { person: Person; onClose: () 
             <Fld label="E-mail" p={person} k="email" can={canEdit} save={save} type="email" />
             <Fld label="Narozen" p={person} k="birth_date" can={canEdit} save={save} type="date" />
             <Fld label="Národnost" p={person} k="nationality" can={canEdit} save={save} />
-            <label title="Kdo člověka dodává. SEMS = platí se hodiny; TCS = vlastní. U jednotlivé cesty jde přepnout v Reportech.">Dodavatel
-              <select value={person.supplier ?? SUPPLIER_OWN} disabled={!canEdit} onChange={e => save({ supplier: e.target.value })}>
+            <label title="Kdo člověka dodává (většinou SEMS, platí se hodiny). U jednotlivé cesty jde přepnout v Reportech.">Dodavatel
+              <select value={person.supplier ?? ''} disabled={!canEdit} onChange={e => save({ supplier: e.target.value || null })}>
+                <option value="">bez dodavatele</option>
                 {suppliers.filter(s => s.active || s.name === person.supplier).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
               </select>
             </label>
