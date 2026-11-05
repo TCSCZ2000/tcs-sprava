@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
-import { supabase, reportDone, REPORT_DONE_OR, type RouteTime, type Trip } from '../lib/supabase'
+import { supabase, reportDone, type RouteTime, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { carAlerts, inPlanning } from '../lib/cars'
 import { dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from '../lib/format'
@@ -66,10 +66,10 @@ export default function Plan() {
   }, [])
 
   useEffect(() => {
-    // Plán: všechny cesty bez ohledu na datum, dokud nejsou vyřízené (Finished a report uzavřený tlačítkem Hotovo v Reportech).
+    // Plán: všechny cesty bez ohledu na datum, dokud nejsou vyřízené (report uzavřený v Reportech tlačítkem Hotovo, u zrušených i „bez účtování“).
     // Historie: jen vyřízené. Od/Do omezí obojí.
     let qb = supabase.from('trips').select('*')
-    qb = hist ? qb.eq('status', 'Finished').not('report_done_at', 'is', null) : qb.or(REPORT_DONE_OR)
+    qb = hist ? qb.not('report_done_at', 'is', null) : qb.is('report_done_at', null)
     if (from) qb = qb.gte('trip_date', from)
     if (to) qb = qb.lte('trip_date', to)
     qb.order('trip_date').order('trip_time', { nullsFirst: true })
@@ -308,7 +308,7 @@ export default function Plan() {
         <label className="field">Do<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
         <div className="seg" role="group" aria-label="Plán nebo historie">
           <button className={hist ? '' : 'on'} aria-pressed={!hist} onClick={() => setHist(false)} title="Všechny cesty, které ještě nemají hotový report">Plán</button>
-          <button className={hist ? 'on' : ''} aria-pressed={hist} onClick={() => setHist(true)} title="Vyřízené cesty: Finished s reportem uzavřeným tlačítkem Hotovo">Historie</button>
+          <button className={hist ? 'on' : ''} aria-pressed={hist} onClick={() => setHist(true)} title="Vyřízené cesty: report uzavřený tlačítkem Hotovo, zrušené rozhodnuté">Historie</button>
         </div>
         <input className="search" placeholder="Hledat místo, jméno, SPZ, Ref…" value={q} onChange={e => setQ(e.target.value)} />
         <div className="statusfilter">
@@ -433,6 +433,7 @@ export default function Plan() {
                           if (!hit) return toast(`Napište status ze seznamu nebo referenční číslo ve tvaru A12345.`, 'err')
                           save(t, { status: hit.name })
                           if (hit.name === 'Finished') toast('Cesta je v záložce Reporty k dopsání reportu; po Hotovo přejde do Historie.')
+                          if (hit.name === 'Canceled') toast('Zrušená cesta je v Reportech: buď storno s ruční cenou a Hotovo, nebo „bez účtování“; případně ji smažte.')
                         }} />
                     </td>
                     <td className={'custcell' + (t.customer ? '' : ' missing')}>

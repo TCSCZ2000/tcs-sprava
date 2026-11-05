@@ -50,7 +50,7 @@ export default function Hours() {
 
   const { segs } = useMemo(() => chainHours(trips, t => plannedStartIso(t, ridx, placeBy)), [trips, ridx, placeBy])
   const inMonth = (t: Trip) => t.trip_date >= from && t.trip_date < to
-  const counted = reportDone
+  const counted = (t: Trip) => t.status === 'Finished' && reportDone(t)
   const pendingTrips = useMemo(() => trips.filter(t => inMonth(t) && !counted(t) && t.status !== 'Canceled'), [trips, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo<Row[]>(() => {

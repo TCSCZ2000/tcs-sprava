@@ -33,7 +33,8 @@ export function ReportDialog(p: {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') p.onClose() }
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
   }, [p])
-  const ready = !!t.report_no && !!t.dep_home && !!t.arr_home
+  const canceled = t.status === 'Canceled'
+  const ready = canceled ? !!t.report_no && t.price_manual != null : !!t.report_no && !!t.dep_home && !!t.arr_home
   const num = (v: string) => { const s = v.replace(/\s/g, '').replace(',', '.'); if (!s) return null; const n = Number(s); return Number.isFinite(n) ? n : undefined }
   const times = TIMES.filter(x => !(transport && x.key === 'arr_pup'))
   const prevFilled = (i: number) => { for (let k = i - 1; k >= 0; k--) { const v = t[TIMES[k].key]; if (v) return v.replace(' ', 'T') } return `${t.trip_date}T00:00:00` }
@@ -43,7 +44,7 @@ export function ReportDialog(p: {
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) p.onClose() }}>
       <div className="dialog cardialog repdialog" role="dialog" aria-label="Report">
         <div className="dialoghead">
-          <h2>{t.trip_date.split('-').reverse().join('. ')} {t.trip_time?.slice(0, 5)} · {t.customer ?? 'bez zákazníka'} · {transport && '🚐 '}{name(t.pup_id)} → {name(t.dop_id)}{stops.map(s => ` → ${name(s.place_id)}`).join('')}{done && <span className="nltag">hotovo</span>}</h2>
+          <h2>{t.trip_date.split('-').reverse().join('. ')} {t.trip_time?.slice(0, 5)} · {t.customer ?? 'bez zákazníka'} · {transport && '🚐 '}{name(t.pup_id)} → {name(t.dop_id)}{stops.map(s => ` → ${name(s.place_id)}`).join('')}{canceled && <span className="nltag">{t.cancel_mode === 'none' ? 'zrušeno · neúčtuje se' : t.cancel_mode === 'fee' ? 'storno' : 'ZRUŠENO'}</span>}{done && <span className="nltag">hotovo</span>}</h2>
           <button className="ghost" aria-label="Zavřít" onClick={p.onClose}>×</button>
         </div>
         <p className="quiet small">Posádka {crew || '–'} · auto {car?.plate ?? car?.car_no ?? '–'} · {t.base_from} → {t.base_to}{t.takeover ? ' · take-over' : ''} <button className="link small" onClick={p.onSupplier}>dodavatel</button></p>
@@ -134,9 +135,10 @@ export function ReportDialog(p: {
           <button className="link" onClick={p.onClose}>Zavřít</button>
           {canEdit && !done && <>
             <button className="link small" onClick={() => save({ status: 'Departed' })} title="Vrátit cestu do Planningu se statusem Departed">Do Planningu</button>
-            <button className="primary" disabled={!ready} title={ready ? 'Uzavřít report' : 'Chybí číslo reportu, odjezd nebo příjezd domů'} onClick={() => { save({ report_done_at: new Date().toISOString() }); p.onClose() }}>Hotovo</button>
+            {canceled && <button className="link small" onClick={() => { save({ report_done_at: new Date().toISOString(), cancel_mode: 'none' }); p.onClose() }}>bez účtování</button>}
+            <button className="primary" disabled={!ready} title={ready ? 'Uzavřít' : canceled ? 'Storno: chybí číslo reportu nebo ruční cena' : 'Chybí číslo reportu, odjezd nebo příjezd domů'} onClick={() => { save({ report_done_at: new Date().toISOString(), ...(canceled ? { cancel_mode: 'fee' as const } : {}) }); p.onClose() }}>Hotovo</button>
           </>}
-          {canEdit && done && <button className="link" onClick={() => save({ report_done_at: null })}>Znovu otevřít</button>}
+          {canEdit && done && <button className="link" onClick={() => save({ report_done_at: null, cancel_mode: null })}>Znovu otevřít</button>}
         </div>
       </div>
     </div>,

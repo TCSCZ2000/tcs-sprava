@@ -60,7 +60,7 @@ export default function Reports() {
     let q = supabase.from('trips').select('*').order('trip_date').order('trip_time', { nullsFirst: true })
     const [y, mo] = doneMonth.split('-').map(Number)
     const next = `${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}-01`
-    q = q.eq('status', DONE)
+    q = q.in('status', [DONE, 'Canceled'])
     q = showDone ? q.or(`report_done_at.is.null,and(trip_date.gte.${doneMonth}-01,trip_date.lt.${next})`) : q.is('report_done_at', null)
     q.then(({ data, error }) => {
       if (error) toast(explain(error), 'err')
@@ -113,7 +113,7 @@ export default function Reports() {
         setTrips(cur => {
           if (payload.eventType === 'DELETE') return cur.filter(t => t.id !== (payload.old as Trip).id)
           const row = payload.new as Trip
-          const keep = row.status === DONE && (!row.report_done_at || showDone)
+          const keep = (row.status === DONE || row.status === 'Canceled') && (!row.report_done_at || showDone)
           const i = cur.findIndex(t => t.id === row.id)
           if (!keep) return i === -1 ? cur : cur.filter(t => t.id !== row.id)
           if (i === -1) return [...cur, row]
@@ -174,7 +174,7 @@ export default function Reports() {
     if (!showDone || !seePrice) return []
     const out: { customer: string; parts: { rows: { t: Trip; pr: Priced | null }[]; sum: number }[]; missing: number }[] = []
     for (const c of customers.filter(c => c.report_series === 'TCS')) {
-      const done = trips.filter(t => t.customer === c.name && reportDone(t) && t.trip_date >= `${doneMonth}-01`).sort((a, b) => (a.report_no ?? 0) - (b.report_no ?? 0))
+      const done = trips.filter(t => t.customer === c.name && reportDone(t) && t.cancel_mode !== 'none' && t.trip_date >= `${doneMonth}-01`).sort((a, b) => (a.report_no ?? 0) - (b.report_no ?? 0))
       if (!done.length) continue
       const parts: { rows: { t: Trip; pr: Priced | null }[]; sum: number }[] = []
       let cur = { rows: [] as { t: Trip; pr: Priced | null }[], sum: 0 }, missing = 0
@@ -199,7 +199,7 @@ export default function Reports() {
         const rows: Cell[][] = [['TCS', '', '', '', '', '', '', ''], [], ['Date', '#Report', 'Ref#', 'Route', 'HRS Price', 'Car Price', 'Toll Price', 'Price']]
         let hrs = 0, car = 0, toll = 0
         for (const { t, pr } of p.rows) {
-          rows.push([t.trip_date.split('-').reverse().join('.'), t.report_no, t.ref_tcs, `${placeBy.get(t.pup_id ?? '')?.name ?? '?'}-${placeBy.get(t.dop_id ?? '')?.name ?? '?'}${stopsOf(t, stops).map(s => '-' + (placeBy.get(s.place_id)?.name ?? '?')).join('')}${t.takeover ? ' (Take-Over)' : ''}`, pr?.hrs ?? '', pr?.car ?? '', pr?.toll ?? '', pr?.price ?? ''])
+          rows.push([t.trip_date.split('-').reverse().join('.'), t.report_no, t.ref_tcs, `${placeBy.get(t.pup_id ?? '')?.name ?? '?'}-${placeBy.get(t.dop_id ?? '')?.name ?? '?'}${stopsOf(t, stops).map(s => '-' + (placeBy.get(s.place_id)?.name ?? '?')).join('')}${t.takeover ? ' (Take-Over)' : ''}${t.status === 'Canceled' ? ' (canceled)' : ''}`, pr?.hrs ?? '', pr?.car ?? '', pr?.toll ?? '', pr?.price ?? ''])
           hrs += pr?.hrs ?? 0; car += pr?.car ?? 0; toll += pr?.toll ?? 0
         }
         rows.push([], ['', '', '', 'Celkem', Math.round(hrs * 100) / 100, Math.round(car * 100) / 100, Math.round(toll * 100) / 100, p.sum])
@@ -241,13 +241,14 @@ export default function Reports() {
   }, [trips, customers, hiddenCust])
 
   const waiting = trips.filter(t => t.status === DONE && !t.report_done_at).length
+  const canceledOpen = trips.filter(t => t.status === 'Canceled' && !t.report_done_at).length
   const COLS = seePrice ? 27 : 25
 
   return (
     <section className="plan reports size-s">
       <div className="toolbar">
         <h1>Reporty</h1>
-        <span className="count">{waiting} k dopsání</span>
+        <span className="count">{waiting} k dopsání{canceledOpen ? ` · ${canceledOpen} zrušených k rozhodnutí` : ''}</span>
         <div className="statusfilter custfilter">
           {[...customers.map(c => c.name), NO_CUSTOMER].map(c => (
             <button key={c} className={'chip cust' + (hiddenCust.has(c) ? ' off' : '')}
@@ -266,7 +267,7 @@ export default function Reports() {
       {attachments.length > 0 && (
         <p className="quiet small attachinfo">Přílohy k faktuře za {doneMonth}: {attachments.map(a => `${a.customer}: ${a.parts.map((p, i) => `č. ${i + 1} (${p.rows.length} rep., ${money(p.sum, 'EUR')})`).join(', ')}${a.missing ? ` · ${a.missing} bez ceny!` : ''}`).join(' · ')} — rozděleno po max. 21 000 € v pořadí čísel reportů.</p>
       )}
-      <p className="intro">Sem spadne každá cesta, které v Planningu dáte status Finished. Časy pište jako 3:30 (den se doplní sám) nebo 2.11. 3:30. Hotový report uzavřete tlačítkem Hotovo; cesta tím zmizí z Planningu do Historie.</p>
+      <p className="intro">Sem spadne každá cesta, které v Planningu dáte status Finished, a také zrušené (Canceled). Časy pište jako 3:30 (den se doplní sám) nebo 2.11. 3:30. Hotový report uzavřete tlačítkem Hotovo; cesta tím zmizí z Planningu do Historie. U zrušené buď zadáte storno (ruční cenu, číslo reportu, Hotovo), nebo dáte „bez účtování“, ať zůstane v Historii pro přehled; co se účtovat nebude a nemá zůstat ani v přehledu, smažte v Planningu.</p>
 
       <div className="tablewrap">
         <table className="grid report">
@@ -290,7 +291,8 @@ export default function Reports() {
                 const tstops = stopsOf(t, stops)
                 const end = jobEnd(t, stops)
                 const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, end)
-                const ready = !!t.report_no && !!t.dep_home && !!t.arr_home
+                const canceled = t.status === 'Canceled'
+                const ready = canceled ? !!t.report_no && t.price_manual != null : !!t.report_no && !!t.dep_home && !!t.arr_home
                 const ed = canEdit && !done
                 const transport = tripKind(t) === 'transport'   // přeprava: jen Odjezd, Naloženo, Příjezd na vykládku, Vyloženo, Příjezd, Km celkem
                 const tcs = isTcsCustomer(t.customer, customers)
@@ -299,10 +301,10 @@ export default function Reports() {
                 const sug = ed ? suggestFor(t) : {}
                 return (
                   <Fragment key={t.id}>
-                  <tr className={'trip' + (done ? ' done' : '')} style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
+                  <tr className={'trip' + (done ? ' done' : '') + (canceled ? ' canceledrow' : '')} style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
                     <td className="w-dots"><button className="ghost dots" title="Detail reportu: celé časy, trasa z ceníku, cena" aria-label="Detail reportu" onClick={() => setOpenId(t.id)}>⋯</button></td>
                     <td className="ro nowrap">{dm(t.trip_date)} {t.trip_time?.slice(0, 5)}</td>
-                    <td className={'ro' + (t.customer ? '' : ' missingtxt')}>{t.customer ?? 'chybí'}</td>
+                    <td className={'ro' + (t.customer ? '' : ' missingtxt')}>{t.customer ?? 'chybí'}{canceled && <span className="totag canceltag" title={t.cancel_mode === 'none' ? 'Zrušeno bez účtování' : t.cancel_mode === 'fee' ? 'Storno poplatek' : 'Zrušená cesta: storno (ruční cena + číslo + Hotovo), nebo bez účtování'}>{t.cancel_mode === 'none' ? 'zrušeno · neúčtuje se' : t.cancel_mode === 'fee' ? 'storno' : 'ZRUŠENO'}</span>}</td>
                     <td className="repno">
                       <Text disabled={!ed} value={t.report_no?.toString() ?? ''} mono time placeholder="číslo"
                         onSave={v => { const n = v.trim(); if (n && !/^\d+$/.test(n)) return toast('Číslo reportu jsou jen číslice.', 'err'); save(t, { report_no: n ? Number(n) : null }) }} />
@@ -393,12 +395,13 @@ export default function Reports() {
                       {canEdit && !done && (
                         <>
                           {Object.keys(sug).length > 0 && <button className="link small" title={'Doplní prázdná pole podle trasy: ' + Object.entries(sug).map(([k, v]) => `${k} ${typeof v === 'string' && v.includes('T') ? fmtDT(v) : v}`).join(', ')} onClick={() => save(t, sug)}>doplnit z trasy</button>}{' '}
-                          <button className="primary small" disabled={!ready} title={ready ? 'Uzavřít report' : 'Chybí číslo reportu, odjezd nebo příjezd domů'}
-                            onClick={() => save(t, { report_done_at: new Date().toISOString() })}>Hotovo</button>{' '}
+                          <button className="primary small" disabled={!ready} title={ready ? (canceled ? 'Uzavřít storno' : 'Uzavřít report') : canceled ? 'Storno: chybí číslo reportu nebo ruční cena' : 'Chybí číslo reportu, odjezd nebo příjezd domů'}
+                            onClick={() => save(t, { report_done_at: new Date().toISOString(), ...(canceled ? { cancel_mode: 'fee' as const } : {}) })}>Hotovo</button>{' '}
+                          {canceled && <><button className="link small" title="Zrušená cesta zůstane v Historii pro přehled, nic se neúčtuje" onClick={() => save(t, { report_done_at: new Date().toISOString(), cancel_mode: 'none' })}>bez účtování</button>{' '}</>}
                           <button className="link small" onClick={() => save(t, { status: 'Departed' })} title="Vrátit cestu do Planningu se statusem Departed">Do Planningu</button>
                         </>
                       )}
-                      {canEdit && done && <button className="link small" onClick={() => save(t, { report_done_at: null })}>Znovu otevřít</button>}
+                      {canEdit && done && <button className="link small" onClick={() => save(t, { report_done_at: null, cancel_mode: null })}>Znovu otevřít</button>}
                       {done && !canEdit && <span className="quiet">hotovo</span>}
                     </td>
                   </tr>

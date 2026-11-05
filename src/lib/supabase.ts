@@ -85,10 +85,10 @@ export interface Trip {
   report_done_at: string | null   // report uzavřený tlačítkem Hotovo
   report_series: string | null    // řada čísel reportů (podle zákazníka: TCS, JTI-AGS, JTI-CZ, JTI-SK)
   customer_ref: string | null     // reference zákazníka (JTi…), u opakujících se tras výchozí z trasy
+  cancel_mode: 'fee' | 'none' | null   // zrušená cesta: storno poplatek (účtuje se) / bez účtování
 }
-// Tok: Finished v Planningu → cesta je v Reportech k dopsání → Hotovo (report_done_at) → z Planningu do Historie.
-export const reportDone = (t: Pick<Trip, 'status' | 'report_done_at'>) => t.status === 'Finished' && t.report_done_at != null
-export const REPORT_DONE_OR = 'status.neq.Finished,status.is.null,report_done_at.is.null'   // filtr „není vyřízená“ pro PostgREST
+// Tok: Finished (nebo Canceled) v Planningu → cesta je v Reportech → Hotovo / bez účtování (report_done_at) → z Planningu do Historie.
+export const reportDone = (t: Pick<Trip, 'report_done_at'>) => t.report_done_at != null
 
 // Dodavatel člena posádky na dané cestě: přepsaný u cesty, jinak výchozí u člověka, jinak bez dodavatele
 export function supplierOf(t: Pick<Trip, 'guard1_id' | 'guard2_id' | 'guard3_id' | 'guard1_supplier' | 'guard2_supplier' | 'guard3_supplier'>, personId: string, personBy: Map<string, Person>): string {
