@@ -2,13 +2,14 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, reportDone, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedHomeIso, plannedStartIso } from '../lib/planned'
 import { KIND_LABEL, baseLabel, groupRoutes, isTcsCustomer, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
-import { composeRoute, copyRoute, createComposedRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick } from '../lib/routes'
+import { composeRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { Text } from './Plan'
 import { SupplierDialog, supplierSummary } from './SupplierDialog'
+import { RouteSaveDialog } from './RouteSaveDialog'
 
 const DONE = 'Finished'
 const NO_CUSTOMER = '—'
@@ -33,18 +34,6 @@ export default function Reports() {
     .then(([r, p]) => { setRoutes((r.data as Route[]) ?? []); setRprices((p.data as RoutePrice[]) ?? []) })
   useEffect(() => { if (seePrice) loadRoutes() }, [seePrice])
   const canRoutes = level('routes') === 'write'
-  async function adoptRoute(t: Trip, src: Route) {
-    const { error } = await copyRoute(src, t.pup_id!, t.dop_id!, t.base_from, t.base_to, rprices, '', stopsOf(t, stops).map(s => s.place_id), t.customer)
-    if (error) return toast(error, 'err')
-    toast(`Trasa ${placeBy.get(t.pup_id!)?.name} → ${placeBy.get(t.dop_id!)?.name} založena jako kopie. Zkontrolujte ji v Trasách a cenách.`)
-    loadRoutes()
-  }
-  async function composeFor(t: Trip, ho: LegPick | null, dh: LegPick | null, mid: MidPick | null) {
-    const { error } = await createComposedRoute(t.pup_id!, t.dop_id!, t.base_from, t.base_to, ho, dh, stopsOf(t, stops).map(s => s.place_id), mid, t.customer)
-    if (error) return toast(error, 'err')
-    toast(mid ? 'Trasa založena z úseků včetně PUP→DOP. Zkontrolujte ji v Trasách a cenách.' : `Trasa založena z úseků. Doplňte PUP→DOP v Trasách a cenách (km, hodiny, mýto).`)
-    loadRoutes()
-  }
   const routeBy = useMemo(() => groupRoutes(routes), [routes])
   const [trips, setTrips] = useState<Trip[]>([])
   const [showDone, setShowDone] = useState(true)
@@ -57,6 +46,7 @@ export default function Reports() {
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
   const [supFor, setSupFor] = useState<Trip | null>(null)
+  const [routeFor, setRouteFor] = useState<{ trip: Trip; similar?: { route: Route; why: string }; composed?: { ho: LegPick | null; dh: LegPick | null; mid: MidPick | null } } | null>(null)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
@@ -323,13 +313,9 @@ export default function Reports() {
                                 const comp = t.pup_id && t.dop_id && !sug.length ? composeRoute(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy, tstops.map(s => s.place_id)) : null
                                 return <span className="ro missingtxt" title={`V Trasách a cenách tahle trasa není${baseLabel(t.base_from, t.base_to) ? ` (varianta ${baseLabel(t.base_from, t.base_to)})` : ''}`}>
                                   chybí trasa{baseLabel(t.base_from, t.base_to) ? ` ${baseLabel(t.base_from, t.base_to)}` : ''}
-                                  {sug.length > 0 && canRoutes && (
-                                    <> <button className="link small" title={`Založí trasu jako kopii ${placeBy.get(sug[0].route.pup_id)?.name} → ${placeBy.get(sug[0].route.dop_id)?.name} (${sug[0].why}) včetně sazeb a pevných cen. Příště už se nebude ptát.`}
-                                      onClick={() => adoptRoute(t, sug[0].route)}>použít {placeBy.get(sug[0].route.pup_id)?.name} → {placeBy.get(sug[0].route.dop_id)?.name}</button></>
-                                  )}
-                                  {comp && (comp.ho || comp.dh) && canRoutes && (
-                                    <> <button className="link small" title={`Založí trasu s hotovými úseky: ${t.base_from}→PUP ${comp.ho ? 'z ' + comp.ho.why : 'chybí'}; ${comp.mid ? 'PUP→DOP součet ' + comp.mid.parts.join(' + ') + '; ' : ''}DOP→${t.base_to} ${comp.dh ? 'z ' + comp.dh.why : 'chybí'}.${comp.mid ? '' : ' Úsek PUP→DOP pak doplníte v Trasách a cenách.'}`}
-                                      onClick={() => composeFor(t, comp.ho, comp.dh, comp.mid)}>založit z úseků{comp.mid ? ' (i PUP→DOP)' : comp.ho && comp.dh ? '' : comp.ho ? ' (jen Výjezd→PUP)' : ' (jen DOP→Návrat)'}</button></>
+                                  {canRoutes && t.pup_id && t.dop_id && (
+                                    <> <button className="link small" title={sug.length ? `Otevře uložení trasy předvyplněné z reportu a z trasy ${placeBy.get(sug[0].route.pup_id)?.name} → ${placeBy.get(sug[0].route.dop_id)?.name} (${sug[0].why}); před uložením si upravíte km, hodiny, mýto, sazby a variantu.` : comp && (comp.ho || comp.dh) ? `Otevře uložení trasy předvyplněné z reportu a z hotových úseků (${t.base_from}→PUP ${comp.ho ? 'z ' + comp.ho.why : 'chybí'}; DOP→${t.base_to} ${comp.dh ? 'z ' + comp.dh.why : 'chybí'}).` : 'Otevře uložení trasy předvyplněné z reportu (km a časy téhle cesty).'}
+                                      onClick={() => setRouteFor({ trip: t, similar: sug[0], composed: comp ?? undefined })}>uložit trasu na příště{sug.length ? ` (podle ${placeBy.get(sug[0].route.pup_id)?.name} → ${placeBy.get(sug[0].route.dop_id)?.name})` : comp && (comp.ho || comp.dh) ? ' (z úseků)' : ''}</button></>
                                   )}
                                 </span>
                               })()}
@@ -392,6 +378,8 @@ export default function Reports() {
           <p className="empty">Žádný report k dopsání. Cesta se sem dostane, když jí v Planningu dáte status Report.</p>
         )}
       </div>
+      {routeFor && <RouteSaveDialog trip={trips.find(x => x.id === routeFor.trip.id) ?? routeFor.trip} placeName={id => placeBy.get(id ?? '')?.name ?? '?'} similar={routeFor.similar} composed={routeFor.composed}
+        onSaved={id => { setRouteFor(null); loadRoutes(); if (id) save(routeFor.trip, { route_id: id }) }} onClose={() => setRouteFor(null)} />}
       {supFor && <SupplierDialog trip={trips.find(x => x.id === supFor.id) ?? supFor} onSave={p => save(supFor, p)} onClose={() => setSupFor(null)} />}
     </section>
   )
