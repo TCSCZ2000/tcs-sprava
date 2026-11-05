@@ -118,3 +118,7 @@ create policy "drive_folders r" on drive_folders for select using (can_read('peo
 create policy "drive_folders w" on drive_folders for all using (can_write('people_docs')) with check (can_write('people_docs'));
 
 alter publication supabase_realtime add table person_documents;
+
+-- práva pro přihlášené (RLS je výše)
+grant select, insert, update, delete on person_documents, drive_folders to authenticated;
+grant select on person_doc_kinds to authenticated;
