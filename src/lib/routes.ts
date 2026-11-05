@@ -28,7 +28,7 @@ const r2 = (v: number) => Math.round(v * 100) / 100
 export function breakdown(t: Trip, route: Route | undefined, price: number, how: string, currency: 'EUR' | 'CZK'): Priced {
   const transport = tripKind(t) === 'transport'
   const km = t.km_total ?? (route ? totalKm(route) : 0)
-  const car = route ? r2(km * Number(route.rate_km)) : 0
+  const car = t.rate_km != null ? r2(km * Number(t.rate_km)) : route ? r2(km * Number(route.rate_km)) : 0
   const toll = transport ? 0 : r2(Number(t.toll ?? (route ? totalToll(route) : 0)))
   return { price, how, currency, car: Math.min(car, price), toll: Math.min(toll, Math.max(0, price - car)), hrs: r2(Math.max(0, price - Math.min(car, price) - Math.min(toll, Math.max(0, price - car)))) }
 }
@@ -79,14 +79,15 @@ function tripPriceRaw(t: Trip, route: Route | undefined, prices: RoutePrice[], h
   const crew = [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).length
   const hours = t.hours_manual ?? hoursTotal
   if (hours == null || crew === 0) return null
-  const rateH = route ? Number(route.rate_h) : fallback!.rate_h, rateKm = route ? Number(route.rate_km) : fallback!.rate_km
+  const rateH = t.rate_h != null ? Number(t.rate_h) : route ? Number(route.rate_h) : fallback!.rate_h
+  const rateKm = t.rate_km != null ? Number(t.rate_km) : route ? Number(route.rate_km) : fallback!.rate_km
   const km = t.km_total ?? (route ? totalKm(route) : 0)
   const transport = tripKind(t) === 'transport'
   const toll = transport ? 0 : Number(t.toll ?? (route ? totalToll(route) : 0))
   const hrs = crew * hours * rateH, car = km * rateKm
   return {
     price: Math.round((hrs + car + toll) * 100) / 100, currency: cur,
-    how: `${crew} × ${hours} h × ${rateH} + ${km} km × ${rateKm}${transport ? '' : ` + mýto ${toll}`}${route ? '' : ` (${fallback!.label}, trasa v ceníku není)`}`,
+    how: `${crew} × ${hours} h × ${rateH} + ${km} km × ${rateKm}${transport ? '' : ` + mýto ${toll}`}${t.rate_h != null || t.rate_km != null ? ' (sazby upravené u téhle cesty)' : ''}${route ? '' : ` (${fallback!.label}, trasa v ceníku není)`}`,
   }
 }
 

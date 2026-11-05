@@ -86,6 +86,7 @@ export interface Trip {
   report_series: string | null    // řada čísel reportů (podle zákazníka: TCS, JTI-AGS, JTI-CZ, JTI-SK)
   customer_ref: string | null     // reference zákazníka (JTi…), u opakujících se tras výchozí z trasy
   cancel_mode: 'fee' | 'none' | null   // zrušená cesta: storno poplatek (účtuje se) / bez účtování
+  rate_h: number | null; rate_km: number | null   // sazby upravené pro tuhle cestu; null = podle trasy / zákazníka
 }
 // Tok: Finished (nebo Canceled) v Planningu → cesta je v Reportech → Hotovo / bez účtování (report_done_at) → z Planningu do Historie.
 export const reportDone = (t: Pick<Trip, 'report_done_at'>) => t.report_done_at != null
