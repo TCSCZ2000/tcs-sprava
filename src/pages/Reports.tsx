@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, reportDone, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedHomeIso, plannedStartIso } from '../lib/planned'
 import { KIND_LABEL, baseLabel, groupRoutes, isTcsCustomer, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
-import { composeRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick } from '../lib/routes'
+import { composeRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick, type Priced } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, fmtRel, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
@@ -161,8 +161,57 @@ export default function Reports() {
     save(t, { report_no: last + 1 })
   }
 
+  // cena cesty pro export a přílohy
+  function priceOf(t: Trip) {
+    const end = jobEnd(t, stops)
+    const total = hours(t.dep_home, t.arr_home)
+    const route = pickRoute(t, routeBy.get(tripRouteKey(t, stopsOf(t, stops))))
+    return tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && end ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) ?? '0').replace(',', '.')) : null)
+  }
+  // Přílohy k faktuře TCS NL / TCS DE za měsíc: hotové reporty v pořadí čísel, rozdělené po max. 21 000 € (jako listy Priloha v Excelu)
+  const ATTACH_MAX = 21000
+  const attachments = useMemo(() => {
+    if (!showDone || !seePrice) return []
+    const out: { customer: string; parts: { rows: { t: Trip; pr: Priced | null }[]; sum: number }[]; missing: number }[] = []
+    for (const c of customers.filter(c => c.report_series === 'TCS')) {
+      const done = trips.filter(t => t.customer === c.name && reportDone(t) && t.trip_date >= `${doneMonth}-01`).sort((a, b) => (a.report_no ?? 0) - (b.report_no ?? 0))
+      if (!done.length) continue
+      const parts: { rows: { t: Trip; pr: Priced | null }[]; sum: number }[] = []
+      let cur = { rows: [] as { t: Trip; pr: Priced | null }[], sum: 0 }, missing = 0
+      for (const t of done) {
+        const pr = priceOf(t); if (!pr) missing++
+        const v = pr?.price ?? 0
+        if (cur.rows.length && cur.sum + v > ATTACH_MAX) { parts.push(cur); cur = { rows: [], sum: 0 } }
+        cur.rows.push({ t, pr }); cur.sum = Math.round((cur.sum + v) * 100) / 100
+      }
+      parts.push(cur)
+      out.push({ customer: c.name, parts, missing })
+    }
+    return out
+  }, [trips, customers, showDone, seePrice, doneMonth, rprices, routeBy, stops]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function excelAttachments() {
+    const sheets: { name: string; rows: Cell[][]; widths?: number[] }[] = []
+    const overview: Cell[][] = [['Zákazník', 'Příloha', 'Reportů', 'HRS price', 'Car price', 'Toll', 'Celkem €']]
+    for (const a of attachments) {
+      const code = a.customer.replace('TCS ', '')
+      a.parts.forEach((p, i) => {
+        const rows: Cell[][] = [['TCS', '', '', '', '', '', '', ''], [], ['Date', '#Report', 'Ref#', 'Route', 'HRS Price', 'Car Price', 'Toll Price', 'Price']]
+        let hrs = 0, car = 0, toll = 0
+        for (const { t, pr } of p.rows) {
+          rows.push([t.trip_date.split('-').reverse().join('.'), t.report_no, t.ref_tcs, `${placeBy.get(t.pup_id ?? '')?.name ?? '?'}-${placeBy.get(t.dop_id ?? '')?.name ?? '?'}${stopsOf(t, stops).map(s => '-' + (placeBy.get(s.place_id)?.name ?? '?')).join('')}${t.takeover ? ' (Take-Over)' : ''}`, pr?.hrs ?? '', pr?.car ?? '', pr?.toll ?? '', pr?.price ?? ''])
+          hrs += pr?.hrs ?? 0; car += pr?.car ?? 0; toll += pr?.toll ?? 0
+        }
+        rows.push([], ['', '', '', 'Celkem', Math.round(hrs * 100) / 100, Math.round(car * 100) / 100, Math.round(toll * 100) / 100, p.sum])
+        sheets.push({ name: `Priloha ${code} ${i + 1}`, rows, widths: [11, 9, 9, 42, 10, 10, 10, 10] })
+        overview.push([a.customer, i + 1, p.rows.length, Math.round(hrs * 100) / 100, Math.round(car * 100) / 100, Math.round(toll * 100) / 100, p.sum])
+      })
+    }
+    exportXlsx(`prilohy_${doneMonth}`, [{ name: 'Přehled', rows: overview, widths: [10, 8, 9, 11, 11, 9, 11] }, ...sheets])
+  }
+
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Ref. zákazníka', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', 'Dodavatel', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena bez DPH', 'Měna', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Ref. zákazníka', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', 'Dodavatel', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'HRS price', 'Car price', 'Toll', 'Cena bez DPH', 'Měna', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const end = jobEnd(t, stops)
@@ -176,7 +225,7 @@ export default function Reports() {
         carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no, supplierSummary(t, personBy).join('; '),
         ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
         t.combi === true ? 'ano' : t.combi === false ? 'ne' : links.some(l => l.kind === 'auto' || l.kind === 'overlap') ? 'navrženo' : '',
-        route ? variantLabel(route.variant) : '', pr?.how, pr?.price, pr?.currency, t.report_note, t.status])
+        route ? variantLabel(route.variant) : '', pr?.how, pr?.hrs, pr?.car, pr?.toll, pr?.price, pr?.currency, t.report_note, t.status])
     }
     exportXlsx(`reporty_${showDone ? doneMonth : todayIso()}`, [{ name: 'Reporty', rows: [head, ...body] }])
   }
@@ -185,9 +234,9 @@ export default function Reports() {
     const order = [...customers.map(c => c.name), NO_CUSTOMER]
     const m = new Map<string, Trip[]>(order.map(c => [c, []]))
     for (const t of trips) if (!hiddenCust.has(t.customer ?? NO_CUSTOMER)) m.get(t.customer ?? NO_CUSTOMER)?.push(t)
-    // pořadí jako čísla reportů: podle příjezdu domů; bez příjezdu podle data a objednaného času
+    // pořadí: podle čísla reportu; bez čísla podle příjezdu domů, jinak podle data a objednaného času
     const key = (t: Trip) => t.arr_home ?? `${t.trip_date}T${t.trip_time ?? '00:00'}`
-    for (const r of m.values()) r.sort((a, b) => key(a).localeCompare(key(b)))
+    for (const r of m.values()) r.sort((a, b) => (a.report_no != null && b.report_no != null) ? a.report_no - b.report_no : a.report_no != null ? -1 : b.report_no != null ? 1 : key(a).localeCompare(key(b)))
     return [...m.entries()].filter(([, r]) => r.length)
   }, [trips, customers, hiddenCust])
 
@@ -211,8 +260,12 @@ export default function Reports() {
         <input type="month" value={doneMonth} onChange={e => e.target.value && setDoneMonth(e.target.value)} disabled={!showDone} className="search" style={{ minWidth: 'auto', flex: '0 0 auto' }} />
         <span className="grow" />
         <button className="ghostbtn" onClick={excel}>Excel</button>
+        {attachments.length > 0 && <button className="ghostbtn" title="Přílohy k fakturám TCS NL a TCS DE za zvolený měsíc, rozdělené po max. 21 000 €" onClick={excelAttachments}>Přílohy k faktuře</button>}
         <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
       </div>
+      {attachments.length > 0 && (
+        <p className="quiet small attachinfo">Přílohy k faktuře za {doneMonth}: {attachments.map(a => `${a.customer}: ${a.parts.map((p, i) => `č. ${i + 1} (${p.rows.length} rep., ${money(p.sum, 'EUR')})`).join(', ')}${a.missing ? ` · ${a.missing} bez ceny!` : ''}`).join(' · ')} — rozděleno po max. 21 000 € v pořadí čísel reportů.</p>
+      )}
       <p className="intro">Sem spadne každá cesta, které v Planningu dáte status Finished. Časy pište jako 3:30 (den se doplní sám) nebo 2.11. 3:30. Hotový report uzavřete tlačítkem Hotovo; cesta tím zmizí z Planningu do Historie.</p>
 
       <div className="tablewrap">

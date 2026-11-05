@@ -22,8 +22,21 @@ const fmtH = (h: number) => h.toString().replace('.', ',')
 // Ruční cena přebije vše. Pevná cena platí pro X h mezi Pup a Dop; skutečné hodiny navíc
 // (request čas cesty → odjezd z Dop) se zaokrouhlí nahoru na čtvrthodiny a připočtou × počet lidí × sazba/h (sazba je na 1 člena posádky).
 // Jinak: hodiny každého z posádky × sazba/h + km × sazba/km + mýto.
-export type Priced = { price: number; how: string; currency: 'EUR' | 'CZK' }
+// Rozklad ceny jako v Přehledu / přílohách faktury: HRS price (hodiny), Car price (km × sazba), Toll. U pevné ceny je car = km × sazba/km, toll = mýto, hrs = zbytek.
+export type Priced = { price: number; how: string; currency: 'EUR' | 'CZK'; hrs: number; car: number; toll: number }
+const r2 = (v: number) => Math.round(v * 100) / 100
+export function breakdown(t: Trip, route: Route | undefined, price: number, how: string, currency: 'EUR' | 'CZK'): Priced {
+  const transport = tripKind(t) === 'transport'
+  const km = t.km_total ?? (route ? totalKm(route) : 0)
+  const car = route ? r2(km * Number(route.rate_km)) : 0
+  const toll = transport ? 0 : r2(Number(t.toll ?? (route ? totalToll(route) : 0)))
+  return { price, how, currency, car: Math.min(car, price), toll: Math.min(toll, Math.max(0, price - car)), hrs: r2(Math.max(0, price - Math.min(car, price) - Math.min(toll, Math.max(0, price - car)))) }
+}
 export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null): Priced | null {
+  const r = tripPriceRaw(t, route, prices, hoursTotal, fixedH)
+  return r ? breakdown(t, route, r.price, r.how, r.currency) : null
+}
+function tripPriceRaw(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null): { price: number; how: string; currency: 'EUR' | 'CZK' } | null {
   const fixed = t.route_price_id ? prices.find(p => p.id === t.route_price_id) : undefined
   const cur = fixed?.currency ?? route?.currency ?? 'EUR'
   if (t.price_manual != null) return { price: Number(t.price_manual), how: 'Ruční cena (domluva se zákazníkem)', currency: cur }

@@ -125,7 +125,7 @@ export function ReportDialog(p: {
               <input className="mono" defaultValue={priced ? money(priced.price, priced.currency) : ''} key={'p' + priced?.price + t.price_manual} disabled={!ed} placeholder="zadat ručně"
                 onBlur={e => { const n = num(e.target.value.replace(/€|Kč/g, '')); if (n === undefined) return toast('Cenu jako číslo.', 'err'); if (n === null) return save({ price_manual: null }); if (auto && Math.abs(n - auto.price) < 0.005 && t.price_manual == null) return; save({ price_manual: n }) }} />
             </label>
-            {priced && <p className="span4 quiet small">{priced.how}</p>}
+            {priced && <p className="span4 quiet small">{priced.how}<br />Rozklad pro přílohu faktury: HRS price {money(priced.hrs, priced.currency)} · Car price {money(priced.car, priced.currency)} · Toll {money(priced.toll, priced.currency)}</p>}
           </>}
 
           <label className="span4">Poznámka k reportu<textarea rows={2} defaultValue={t.report_note ?? ''} disabled={!ed} onBlur={e => e.target.value !== (t.report_note ?? '') && save({ report_note: e.target.value.trim() || null })} /></label>
