@@ -426,3 +426,9 @@ h2.subhead { font-size: 1.05rem; margin: 1.2rem 0 .4rem; }
 .suplink { opacity: 0; margin-left: .3rem; }
 tr:hover .suplink, .suplink:focus { opacity: 1; }
 @media print { .suplink { display: none; } }
+.repdialog { width: min(1040px, 100%); }
+.repsection { margin-top: .4rem; padding-top: .4rem; border-top: 1px solid var(--line); }
+.routelegs td.num, .routelegs th { text-align: right; }
+.routelegs td:first-child, .routelegs th:first-child { text-align: left; }
+.timecell .cell { min-width: 6.6rem; width: 7.2rem; font-size: .85rem; }
+.repdialog .repsection .cell.time { width: 8rem; min-width: 7rem; border-color: var(--line); background: #fff; }

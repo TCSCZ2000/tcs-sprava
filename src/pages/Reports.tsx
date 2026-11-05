@@ -4,12 +4,13 @@ import { buildRouteIndex, plannedHomeIso, plannedStartIso } from '../lib/planned
 import { KIND_LABEL, baseLabel, groupRoutes, isTcsCustomer, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
 import { composeRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
-import { fmtDT, parseDT, todayIso } from '../lib/format'
+import { fmtDT, fmtRel, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { Text } from './Plan'
 import { SupplierDialog, supplierSummary } from './SupplierDialog'
 import { RouteSaveDialog } from './RouteSaveDialog'
+import { ReportDialog } from './ReportDialog'
 
 const DONE = 'Finished'
 const NO_CUSTOMER = '—'
@@ -46,6 +47,7 @@ export default function Reports() {
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
   const [supFor, setSupFor] = useState<Trip | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
   const [routeFor, setRouteFor] = useState<{ trip: Trip; similar?: { route: Route; why: string }; composed?: { ho: LegPick | null; dh: LegPick | null; mid: MidPick | null } } | null>(null)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
@@ -190,7 +192,7 @@ export default function Reports() {
   }, [trips, customers, hiddenCust])
 
   const waiting = trips.filter(t => t.status === DONE && !t.report_done_at).length
-  const COLS = seePrice ? 26 : 24
+  const COLS = seePrice ? 27 : 25
 
   return (
     <section className="plan reports size-s">
@@ -217,7 +219,7 @@ export default function Reports() {
         <table className="grid report">
           <thead>
             <tr>
-              <th>Datum</th><th>Zákazník</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th>Posádka</th><th>Auto</th>
+              <th className="w-dots" /><th>Datum</th><th>Zákazník</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th>Posádka</th><th>Auto</th>
               {TIMES.map(x => <th key={x.key}>{x.label}</th>)}
               <th>Km Pup</th><th>Km Dop</th><th>Km celkem</th><th>Mýto €</th>
               <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th><th title="Navazuje na předchozí cestu posádky: konec předchozí cesty se pro hodiny lidí posune na start téhle. Překryv vždy, mezera do 6 h se navrhne sama.">Navazuje</th>{seePrice && <><th>Cena podle</th><th title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena bez DPH</th></>}<th>Poznámka</th><th />
@@ -245,6 +247,7 @@ export default function Reports() {
                 return (
                   <Fragment key={t.id}>
                   <tr className={'trip' + (done ? ' done' : '')} style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
+                    <td className="w-dots"><button className="ghost dots" title="Detail reportu: celé časy, trasa z ceníku, cena" aria-label="Detail reportu" onClick={() => setOpenId(t.id)}>⋯</button></td>
                     <td className="ro nowrap">{dm(t.trip_date)} {t.trip_time?.slice(0, 5)}</td>
                     <td className={'ro' + (t.customer ? '' : ' missingtxt')}>{t.customer ?? 'chybí'}</td>
                     <td className="repno">
@@ -263,7 +266,7 @@ export default function Reports() {
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => transport && x.key === 'arr_pup' ? <td key={x.key} className="timecell ro quiet" title="U přepravy se nevyplňuje">—</td> : (
                       <td key={x.key} className="timecell" title={transport ? TR_LABEL[x.key] : undefined}>
-                        <Text disabled={!ed} value={fmtDT(t[x.key])} time placeholder={sug[x.key] ? fmtDT(sug[x.key] as string) + '?' : transport && TR_LABEL[x.key] ? TR_LABEL[x.key]!.toLowerCase().slice(0, 8) : 'hh:mm'}
+                        <Text disabled={!ed} value={fmtRel(t[x.key], t.trip_date)} time placeholder={sug[x.key] ? fmtRel(sug[x.key] as string, t.trip_date) + '?' : transport && TR_LABEL[x.key] ? TR_LABEL[x.key]!.toLowerCase().slice(0, 8) : 'hh:mm'}
                           onSave={v => {
                             const base = i === 0 ? `${t.trip_date}T00:00:00` : prevFilled(t, i)
                             const r = parseDT(v, base, i > 0)
@@ -378,6 +381,23 @@ export default function Reports() {
           <p className="empty">Žádný report k dopsání. Cesta se sem dostane, když jí v Planningu dáte status Report.</p>
         )}
       </div>
+      {openId && (() => {
+        const t = trips.find(x => x.id === openId); if (!t) return null
+        const tstops = stopsOf(t, stops); const end = jobEnd(t, stops)
+        const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, end)
+        const variants = routeBy.get(tripRouteKey(t, tstops)) ?? []; const route = pickRoute(t, variants)
+        const rq = t.trip_time ? hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) : null; const reqH = rq ? Number(rq.replace(',', '.')) : null
+        const tot = total ? Number(total.replace(',', '.')) : null
+        const sug = t.pup_id && t.dop_id && !route ? suggestRoutes(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy, tstops.map(s => s.place_id)) : []
+        const comp = !route && t.pup_id && t.dop_id && !sug.length ? composeRoute(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy, tstops.map(s => s.place_id)) : null
+        return <ReportDialog trip={t} stops={tstops} route={route} variants={variants} prices={rprices}
+          priced={seePrice ? tripPrice(t, route, rprices, tot, reqH) : null} auto={seePrice ? tripPrice({ ...t, price_manual: null }, route, rprices, tot, reqH) : null}
+          sug={canEdit && !reportDone(t) ? suggestFor(t) : {}} total={total} escort={escort}
+          combi={combiCell(t, byNext.get(t.id) ?? [], canEdit && !reportDone(t), v => save(t, { combi: v }), personBy)}
+          canEdit={canEdit} seePrice={seePrice} canRoutes={canRoutes} save={patch => save(t, patch)} saveStop={saveStop} nextNumber={() => nextNumber(t)}
+          onSaveRoute={() => setRouteFor({ trip: t, similar: sug[0], composed: comp ?? undefined })} onSupplier={() => setSupFor(t)} onClose={() => setOpenId(null)}
+          homeFor={x => plannedHomeIso(x, ridx, stops)} />
+      })()}
       {routeFor && <RouteSaveDialog trip={trips.find(x => x.id === routeFor.trip.id) ?? routeFor.trip} placeName={id => placeBy.get(id ?? '')?.name ?? '?'} similar={routeFor.similar} composed={routeFor.composed}
         onSaved={id => { setRouteFor(null); loadRoutes(); if (id) save(routeFor.trip, { route_id: id }) }} onClose={() => setRouteFor(null)} />}
       {supFor && <SupplierDialog trip={trips.find(x => x.id === supFor.id) ?? supFor} onSave={p => save(supFor, p)} onClose={() => setSupFor(null)} />}
