@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, reportDone, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
-import { buildRouteIndex, plannedStartIso } from '../lib/planned'
+import { buildRouteIndex, plannedHomeIso, plannedStartIso } from '../lib/planned'
 import { KIND_LABEL, baseLabel, groupRoutes, isTcsCustomer, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
-import { composeRoute, copyRoute, createComposedRoute, money, routeIncomplete, suggestRoutes, tripPrice, type LegPick, type MidPick } from '../lib/routes'
+import { composeRoute, copyRoute, createComposedRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
@@ -84,6 +84,37 @@ export default function Reports() {
   }, [trips])
   const { byNext } = useMemo(() => chainHours(chainTrips, t => plannedStartIso(t, ridx, placeBy)), [chainTrips, ridx, placeBy])
 
+  // Návrh z trasy (ceníku) pro prázdná pole reportu: odjezd z domova = objednaný čas − Výjezd→PUP, příjezd domů = odjezd z Dop + DOP→Návrat
+  // (nahoru na čtvrthodiny), km jako v Excelu narůstající (Km Pup, Km Dop, Km celkem), mýto = součet mýta úseků.
+  function suggestFor(t: Trip): Partial<Trip> {
+    const out: Partial<Trip> = {}
+    const tstops = stopsOf(t, stops)
+    if (!t.dep_home) { const v = plannedStartIso(t, ridx, placeBy, stops); if (v) out.dep_home = v }
+    if (!t.arr_home) { const v = plannedHomeIso(t, ridx, stops); if (v) out.arr_home = v }
+    const route = pickRoute(t, routeBy.get(tripRouteKey(t, tstops)))
+    if (route) {
+      const a = Number(route.ho_pup_km ?? 0), b = Number(route.pup_dop_km ?? 0), c = Number(route.dop_ho_km ?? 0)
+      if (t.km_pup == null && route.ho_pup_km != null) out.km_pup = a
+      if (t.km_dop == null && route.pup_dop_km != null) out.km_dop = a + b
+      if (t.km_total == null && route.dop_ho_km != null) out.km_total = a + b + c
+      if (t.toll == null && tripKind(t) !== 'transport') out.toll = totalToll(route)
+    }
+    return out
+  }
+  // Čerstvá cesta (nic z reportu nevyplněné) dostane návrh rovnou, ať se nemusí koukat do ceníku; vše jde přepsat
+  const prefilled = useRef(new Set<string>())
+  useEffect(() => {
+    if (!canEdit || !routes.length) return
+    for (const t of trips) {
+      if (reportDone(t) || prefilled.current.has(t.id)) continue
+      if (t.dep_home || t.arr_home || t.km_pup != null || t.km_dop != null || t.km_total != null || t.toll != null) continue
+      const sug = suggestFor(t)
+      delete sug.arr_home   // příjezd domů až podle skutečného odjezdu z Dop
+      prefilled.current.add(t.id)
+      if (Object.keys(sug).length) save(t, sug)
+    }
+  }, [trips, routes, ridx, stops]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const ch = supabase.channel('reports')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, payload => {
@@ -118,7 +149,16 @@ export default function Reports() {
   function saveStop(s: TripStop, key: 'arr' | 'dep', v: string, base: string) {
     const r = parseDT(v, base, true)
     if (r === undefined) return toast('Čas zapište jako 3:30 nebo 2.11. 3:30.', 'err')
-    supabase.from('trip_stops').update({ [key]: r }).eq('id', s.id).then(({ error }) => error ? toast(explain(error), 'err') : reloadStops([s.trip_id]))
+    supabase.from('trip_stops').update({ [key]: r }).eq('id', s.id).then(({ error }) => {
+      if (error) return toast(explain(error), 'err')
+      reloadStops([s.trip_id])
+      // odjezd z poslední vykládky → navrhnout příjezd domů, když ještě není
+      const t = trips.find(x => x.id === s.trip_id); const ts = stopsOf(t ?? { id: s.trip_id }, stops)
+      if (key === 'dep' && r && t && !t.arr_home && ts.length && ts[ts.length - 1].id === s.id) {
+        const m: StopsMap = new Map(stops); m.set(t.id, ts.map(x => (x.id === s.id ? { ...x, dep: r } : x)))
+        const h = plannedHomeIso(t, ridx, m); if (h) save(t, { arr_home: h })
+      }
+    })
   }
 
   async function nextNumber(t: Trip) {
@@ -211,6 +251,7 @@ export default function Reports() {
                 const tcs = isTcsCustomer(t.customer, customers)
                 const routeNow = pickRoute(t, routeBy.get(tripRouteKey(t, tstops)))
                 const TR_LABEL: Partial<Record<TimeKey, string>> = { dep_pup: 'Naloženo', arr_dop: 'Příjezd na vykládku', dep_dop: 'Vyloženo' }
+                const sug = ed ? suggestFor(t) : {}
                 return (
                   <Fragment key={t.id}>
                   <tr className={'trip' + (done ? ' done' : '')} style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
@@ -232,20 +273,22 @@ export default function Reports() {
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => transport && x.key === 'arr_pup' ? <td key={x.key} className="timecell ro quiet" title="U přepravy se nevyplňuje">—</td> : (
                       <td key={x.key} className="timecell" title={transport ? TR_LABEL[x.key] : undefined}>
-                        <Text disabled={!ed} value={fmtDT(t[x.key])} time placeholder={transport && TR_LABEL[x.key] ? TR_LABEL[x.key]!.toLowerCase().slice(0, 8) : 'hh:mm'}
+                        <Text disabled={!ed} value={fmtDT(t[x.key])} time placeholder={sug[x.key] ? fmtDT(sug[x.key] as string) + '?' : transport && TR_LABEL[x.key] ? TR_LABEL[x.key]!.toLowerCase().slice(0, 8) : 'hh:mm'}
                           onSave={v => {
                             const base = i === 0 ? `${t.trip_date}T00:00:00` : prevFilled(t, i)
                             const r = parseDT(v, base, i > 0)
                             if (r === undefined) return toast('Čas zapište jako 3:30 nebo 2.11. 3:30.', 'err')
-                            save(t, { [x.key]: r } as Partial<Trip>)
+                            const patch: Partial<Trip> = { [x.key]: r }
+                            if (x.key === 'dep_dop' && r && !t.arr_home && !tstops.length) { const h = plannedHomeIso({ ...t, dep_dop: r }, ridx, stops); if (h) patch.arr_home = h }
+                            save(t, patch)
                           }} />
                       </td>
                     ))}
                     {(['km_pup', 'km_dop', 'km_total'] as const).map(k => transport && k !== 'km_total' ? <td key={k} className="ro quiet" title="U přepravy jen Km celkem">—</td> : (
-                      <td key={k}><Text disabled={!ed} value={t[k]?.toString() ?? ''} time mono
+                      <td key={k}><Text disabled={!ed} value={t[k]?.toString() ?? ''} time mono placeholder={sug[k] != null ? String(sug[k]) + '?' : ''}
                         onSave={v => { const n = num(v); if (n === undefined) return toast('Km pište jako celé číslo.', 'err'); save(t, { [k]: n === null ? null : Math.round(n) } as Partial<Trip>) }} /></td>
                     ))}
-                    {transport ? <td className="ro quiet" title="U přepravy se mýto neúčtuje">—</td> : <td><Text disabled={!ed} value={t.toll?.toString().replace('.', ',') ?? ''} time mono
+                    {transport ? <td className="ro quiet" title="U přepravy se mýto neúčtuje">—</td> : <td><Text disabled={!ed} value={t.toll?.toString().replace('.', ',') ?? ''} time mono placeholder={sug.toll != null ? String(sug.toll) + '?' : ''}
                       onSave={v => { const n = num(v); if (n === undefined) return toast('Mýto pište jako číslo, třeba 25,50.', 'err'); save(t, { toll: n }) }} /></td>}
                     <td className="ro num">{total ?? ''}</td>
                     <td className="ro num">{escort ?? ''}</td>
@@ -307,6 +350,7 @@ export default function Reports() {
                     <td className="actions nowrap">
                       {canEdit && !done && (
                         <>
+                          {Object.keys(sug).length > 0 && <button className="link small" title={'Doplní prázdná pole podle trasy: ' + Object.entries(sug).map(([k, v]) => `${k} ${typeof v === 'string' && v.includes('T') ? fmtDT(v) : v}`).join(', ')} onClick={() => save(t, sug)}>doplnit z trasy</button>}{' '}
                           <button className="primary small" disabled={!ready} title={ready ? 'Uzavřít report' : 'Chybí číslo reportu, odjezd nebo příjezd domů'}
                             onClick={() => save(t, { report_done_at: new Date().toISOString() })}>Hotovo</button>{' '}
                           <button className="link small" onClick={() => save(t, { status: 'Departed' })} title="Vrátit cestu do Planningu se statusem Departed">Do Planningu</button>
