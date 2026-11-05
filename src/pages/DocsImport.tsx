@@ -80,10 +80,10 @@ export function DocsImport({ onClose, kinds }: { onClose: () => void; kinds: Doc
         const key = fold(f.create.first + '|' + f.create.last)
         pid = created.get(key)
         if (!pid) {
-          const { data, error } = await supabase.from('people').insert({ first_name: f.create.first, last_name: f.create.last, active: false, note: 'Založeno přenosem dokladů z Drive' }).select('id').single()
+          const { data, error } = await supabase.from('people').insert({ first_name: f.create.first, last_name: f.create.last, note: 'Založeno přenosem dokladů z Drive' }).select('id').single()
           if (error || !data) { say(`✗ ${f.name}: ${explain(error)}`); n += f.files.length; setDone(n); continue }
           pid = data.id; created.set(key, pid!)
-          say(`+ založen ${f.create.first} ${f.create.last} (neaktivní)`)
+          say(`+ založen ${f.create.first} ${f.create.last}`)
         }
         await supabase.from('drive_folders').upsert({ folder_name: f.name, person_id: pid, first_name: f.create.first, last_name: f.create.last })
       }
@@ -122,13 +122,13 @@ export function DocsImport({ onClose, kinds }: { onClose: () => void; kinds: Doc
         <div className="dialoghead"><h2>Import dokladů ze složky</h2><button className="ghost" aria-label="Zavřít" disabled={running} onClick={onClose}>×</button></div>
         {!folders && (
           <div>
-            <p className="intro">Vyberte složku <strong>Doklady</strong> z Google Drive (stáhněte ji z Drive jako ZIP a rozbalte, nebo ji mějte synchronizovanou přes Drive pro počítač). Uvnitř má být složka na každého člověka: <code>Doklady/Příjmení Jméno/soubory</code>. Soubory se zkopírují do aplikace k příslušnému člověku jako doklady; typ se odhadne z názvu souboru (OP, ŘP, pas, DPP…), ostatní zůstanou „nezařazeno“ a zařadí se později. Lidé, kteří v databázi nejsou, se založí jako neaktivní. Spustit to jde opakovaně, co už je přenesené, se přeskočí.</p>
+            <p className="intro">Vyberte složku <strong>Doklady</strong> z Google Drive (stáhněte ji z Drive jako ZIP a rozbalte, nebo ji mějte synchronizovanou přes Drive pro počítač). Uvnitř má být složka na každého člověka: <code>Doklady/Příjmení Jméno/soubory</code>. Soubory se zkopírují do aplikace k příslušnému člověku jako doklady; typ se odhadne z názvu souboru (OP, ŘP, pas, DPP…), ostatní zůstanou „nezařazeno“ a zařadí se později. Lidé, kteří v databázi nejsou, se založí (aktivní, ať je Planning nabídne; vyřadit je jde v Lidech). Spustit to jde opakovaně, co už je přenesené, se přeskočí.</p>
             <p><input type="file" multiple onChange={e => pick(e.target.files)} ref={el => { if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', '') } }} /></p>
           </div>
         )}
         {folders && !finished && (
           <div>
-            <p className="intro">{folders.length} složek, {fileCount} souborů{alreadyCount ? ` (${alreadyCount} už přenesených, přeskočí se)` : ''}. {newCount > 0 && <>{newCount} lidí v databázi není, založí se jako neaktivní.</>}</p>
+            <p className="intro">{folders.length} složek, {fileCount} souborů{alreadyCount ? ` (${alreadyCount} už přenesených, přeskočí se)` : ''}. {newCount > 0 && <>{newCount} lidí v databázi není, založí se.</>}</p>
             {running && <p className="warn">Přenáším… {done} z {total}. Nezavírejte okno.</p>}
             {!running && <p><button className="primary" onClick={run}>Spustit přenos</button> <button className="link" onClick={() => setFolders(null)}>Vybrat jinou složku</button></p>}
             <div className="tablewrap" style={{ maxHeight: '50vh', overflow: 'auto' }}>

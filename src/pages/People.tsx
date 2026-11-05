@@ -59,6 +59,30 @@ export function People() {
   }
   const dateOf = (p: Person, kind: string) => best.get(p.id + '|' + kind) ?? ''
 
+  // Hromadně: neaktivní = nikdo z nich nejel od zadaného data (Hodiny ukazují jen lidi s cestou, takže tohle je jen pro nabídku v Planningu)
+  async function bulkInactive() {
+    const since = window.prompt('Označit jako neaktivní všechny, kdo neměli cestu od data (RRRR-MM-DD):', new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10))?.trim()
+    if (!since || !/^\d{4}-\d{2}-\d{2}$/.test(since)) return
+    const { data, error } = await supabase.from('trips').select('guard1_id,guard2_id,guard3_id').gte('trip_date', since)
+    if (error) return toast(explain(error), 'err')
+    const rode = new Set<string>()
+    for (const t of (data ?? []) as { guard1_id: string | null; guard2_id: string | null; guard3_id: string | null }[]) for (const id of [t.guard1_id, t.guard2_id, t.guard3_id]) if (id) rode.add(id)
+    const ids = people.filter(p => p.active && !rode.has(p.id)).map(p => p.id)
+    if (!ids.length) return toast('Nikdo k vyřazení, všichni aktivní od té doby jeli.')
+    if (!window.confirm(`${ids.length} lidí nemělo cestu od ${since}. Označit je jako neaktivní? (Zpět to jde zaškrtnutím Aktivní.)`)) return
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error: e } = await supabase.from('people').update({ active: false }).in('id', ids.slice(i, i + 100))
+      if (e) return toast(explain(e), 'err')
+    }
+    toast(`${ids.length} lidí označeno jako neaktivní.`); reloadLists()
+  }
+  async function bulkActive() {
+    const n = people.filter(p => !p.active).length
+    if (!n || !window.confirm(`Označit všech ${n} neaktivních jako aktivní?`)) return
+    const { error } = await supabase.from('people').update({ active: true }).eq('active', false)
+    if (error) toast(explain(error), 'err'); else { toast('Všichni jsou aktivní.'); reloadLists() }
+  }
+
   const cols: Col<Person>[] = [
     { key: 'first', label: 'Jméno', get: r => r.first_name, save: (r, v) => v && savePerson(r, { first_name: v }) },
     { key: 'last', label: 'Příjmení', get: r => r.last_name, save: (r, v) => v && savePerson(r, { last_name: v }) },
@@ -100,6 +124,7 @@ export function People() {
         </>}
         filters={<div className="filterrow">
           <label className="check"><input type="checkbox" checked={onlyActive} onChange={e => setOnlyActive(e.target.checked)} />Jen aktivní ({people.filter(p => p.active).length} z {people.length})</label>
+          {canEdit && <><button className="link small" onClick={bulkInactive}>vyřadit, kdo nejel od…</button><button className="link small" onClick={bulkActive}>všechny aktivní</button></>}
           {seeDocs && unsortedTotal > 0 && <span className="quiet small">{unsortedTotal} dokladů čeká na zařazení</span>}
           {seeDocs && proposedTotal > 0 && <span className="quiet small">{proposedTotal} navržených k potvrzení</span>}
           {dupShort.size > 0 && <span className="quiet small">⚠ stejná zkratka: {[...dupShort].join(', ')} – doplňte rozlišení v detailu</span>}
