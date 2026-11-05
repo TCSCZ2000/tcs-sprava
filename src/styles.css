@@ -420,3 +420,9 @@ tr.inactive td .cell:disabled, tr.inactive td .ro { color: var(--ink-2); }
 .lbbar .ghost { color: #fff; font-size: 1.3rem; }
 .importlog { font-family: ui-monospace, monospace; font-size: .8rem; max-height: 30vh; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem; margin-top: .75rem; }
 .importlog .err { color: var(--clash); }
+.suptag { display: inline-block; font-size: .72rem; font-weight: 600; color: #5b3d9a; border: 1px solid #c3b1e6; background: #f4efff; border-radius: 4px; padding: 0 .3rem; margin-left: .3rem; vertical-align: 1px; white-space: nowrap; }
+tr.supsection td { background: var(--surface-2, #eef2f5); font-size: .95rem; padding: .45rem .5rem; border-top: 2px solid var(--line); }
+h2.subhead { font-size: 1.05rem; margin: 1.2rem 0 .4rem; }
+.suplink { opacity: 0; margin-left: .3rem; }
+tr:hover .suplink, .suplink:focus { opacity: 1; }
+@media print { .suplink { display: none; } }

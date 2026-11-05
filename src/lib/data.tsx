@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { supabase, type Car, type Level, type Person, type PersonDoc, type PersonDocs, type DocKind, summarizeDocs, type Place, type Profile, type Status, type Customer, type CarCategory, type Base } from './supabase'
+import { supabase, type Car, type Level, type Person, type PersonDoc, type PersonDocs, type DocKind, summarizeDocs, type Supplier, type Place, type Profile, type Status, type Customer, type CarCategory, type Base } from './supabase'
 
 export const MODULES = ['planning', 'planning_create', 'planning_status', 'planning_crew', 'planning_route', 'podklad', 'reports', 'routes', 'hours', 'people', 'people_docs', 'cars', 'cars_pins', 'places', 'users'] as const
 export type ModuleKey = (typeof MODULES)[number]
@@ -14,6 +14,7 @@ interface Ctx {
   docs: Map<string, PersonDocs>
   pdocs: PersonDoc[]
   docKinds: DocKind[]
+  suppliers: Supplier[]
   cars: Car[]
   places: Place[]
   statuses: Status[]
@@ -36,6 +37,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [people, setPeople] = useState<Person[]>([])
   const [pdocs, setPdocs] = useState<PersonDoc[]>([])
   const [docKinds, setDocKinds] = useState<DocKind[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const docs = useMemo(() => summarizeDocs(pdocs), [pdocs])
   const [cars, setCars] = useState<Car[]>([])
   const [places, setPlaces] = useState<Place[]>([])
@@ -57,10 +59,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const reloadLists = useCallback(async () => {
-    const [p, d, dk, c, pl, st, cu, cc, bs] = await Promise.all([
+    const [p, d, dk, sp, c, pl, st, cu, cc, bs] = await Promise.all([
       supabase.from('people').select('*').order('last_name'),
       supabase.from('person_documents').select('*').order('uploaded_at'),
       supabase.from('person_doc_kinds').select('*').order('sort'),
+      supabase.from('suppliers').select('*').order('sort'),
       supabase.from('cars').select('*').order('car_no'),
       supabase.from('places').select('*').order('name'),
       supabase.from('statuses').select('*').order('sort'),
@@ -71,6 +74,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPeople((p.data as Person[]) ?? [])
     setPdocs((d.data as PersonDoc[]) ?? [])
     setDocKinds((dk.data as DocKind[]) ?? [])
+    setSuppliers((sp.data as Supplier[]) ?? [])
     setCars((c.data as Car[]) ?? [])
     setPlaces((pl.data as Place[]) ?? [])
     setStatuses((st.data as Status[]) ?? [])
@@ -126,8 +130,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const level = useCallback((m: ModuleKey): Level => levels[m] ?? 'none', [levels])
 
   const value = useMemo(() => ({
-    session, profile, loading, level, people, docs, pdocs, docKinds, cars, places, statuses, customers, carCategories, bases, reloadLists, toast, toastMsg,
-  }), [session, profile, loading, level, people, docs, pdocs, docKinds, cars, places, statuses, customers, carCategories, bases, reloadLists, toast, toastMsg])
+    session, profile, loading, level, people, docs, pdocs, docKinds, suppliers, cars, places, statuses, customers, carCategories, bases, reloadLists, toast, toastMsg,
+  }), [session, profile, loading, level, people, docs, pdocs, docKinds, suppliers, cars, places, statuses, customers, carCategories, bases, reloadLists, toast, toastMsg])
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>
 }

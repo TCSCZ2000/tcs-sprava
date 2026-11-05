@@ -8,6 +8,7 @@ import { fmtDT, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { Text } from './Plan'
+import { SupplierDialog, supplierSummary } from './SupplierDialog'
 
 const REPORT = 'Report'
 const DONE = 'Finished'
@@ -56,6 +57,7 @@ export default function Reports() {
   useEffect(() => { supabase.rpc('route_times').then(({ data }) => setRouteTimes((data as RouteTime[]) ?? [])) }, [])
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
+  const [supFor, setSupFor] = useState<Trip | null>(null)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
@@ -127,7 +129,7 @@ export default function Reports() {
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', 'Dodavatel', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const end = jobEnd(t, stops)
@@ -138,7 +140,7 @@ export default function Reports() {
       body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs, KIND_LABEL[tripKind(t)],
         placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, stopsOf(t, stops).map(s => `${placeBy.get(s.place_id)?.name} (${fmtDT(s.arr)} – ${fmtDT(s.dep)}, ${s.km ?? '?'} km)`).join('; '), t.base_from, t.base_to, t.takeover ? 'ano' : '',
         [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', '),
-        carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no,
+        carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no, supplierSummary(t, personBy).join('; '),
         ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
         t.combi === true ? 'ano' : t.combi === false ? 'ne' : links.some(l => l.kind === 'auto' || l.kind === 'overlap') ? 'navrženo' : '',
         route ? variantLabel(route.variant) : '', pr?.how, pr?.price, t.report_note, t.status])
@@ -214,7 +216,9 @@ export default function Reports() {
                     <td><Text disabled={!ed} value={t.ref_tcs ?? ''} mono time placeholder="A·····"
                       onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
                     <td className="ro">{tripKind(t) === 'transport' && <span className="kindicon" title={KIND_LABEL.transport}>🚐 </span>}{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{tstops.map(s => ` → ${placeBy.get(s.place_id)?.name ?? '?'}`).join('')}{baseLabel(t.base_from, t.base_to) && <span className="nltag">{baseLabel(t.base_from, t.base_to)}</span>}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}</td>
-                    <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}</td>
+                    <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}
+                      {supplierSummary(t, personBy).map(x => <span key={x} className="suptag" title="Odchylka od standardu (SEMS, auto TCS)">{x}</span>)}
+                      {canEdit && <button className="link small quiet suplink" title="Dodavatel posádky a auta u téhle cesty (SEMS je standard)" onClick={() => setSupFor(t)}>dodavatel</button>}</td>
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => (
                       <td key={x.key} className="timecell">
@@ -334,6 +338,7 @@ export default function Reports() {
           <p className="empty">Žádný report k dopsání. Cesta se sem dostane, když jí v Planningu dáte status Report.</p>
         )}
       </div>
+      {supFor && <SupplierDialog trip={trips.find(x => x.id === supFor.id) ?? supFor} onSave={p => save(supFor, p)} onClose={() => setSupFor(null)} />}
     </section>
   )
 }

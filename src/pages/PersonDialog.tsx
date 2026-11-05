@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { supabase, type Person, type PersonDoc } from '../lib/supabase'
+import { supabase, SUPPLIER_OWN, type Person, type PersonDoc } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { docState } from '../lib/format'
 import { dmyOf } from '../lib/service'
@@ -10,7 +10,7 @@ const TABS = [['zaklad', 'Základ'], ['doklady', 'Doklady'], ['cesty', 'Cesty']]
 type Tab = typeof TABS[number][0]
 
 export function PersonDialog({ person, onClose }: { person: Person; onClose: () => void }) {
-  const { level, toast, reloadLists, people } = useApp()
+  const { level, toast, reloadLists, people, suppliers } = useApp()
   const canEdit = level('people') === 'write'
   const seeDocs = level('people_docs') !== 'none'
   const [tab, setTab] = useState<Tab>('zaklad')
@@ -53,6 +53,11 @@ export function PersonDialog({ person, onClose }: { person: Person; onClose: () 
             <Fld label="E-mail" p={person} k="email" can={canEdit} save={save} type="email" />
             <Fld label="Narozen" p={person} k="birth_date" can={canEdit} save={save} type="date" />
             <Fld label="Národnost" p={person} k="nationality" can={canEdit} save={save} />
+            <label title="Kdo člověka dodává. SEMS = platí se hodiny; TCS = vlastní. U jednotlivé cesty jde přepnout v Reportech.">Dodavatel
+              <select value={person.supplier ?? SUPPLIER_OWN} disabled={!canEdit} onChange={e => save({ supplier: e.target.value })}>
+                {suppliers.filter(s => s.active || s.name === person.supplier).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+              </select>
+            </label>
             <label className="checkline"><input type="checkbox" checked={person.active} disabled={!canEdit} onChange={e => save({ active: e.target.checked })} /> Aktivní (nabízí se v Planningu)</label>
             <label className="span4">Poznámka<textarea rows={2} defaultValue={person.note ?? ''} disabled={!canEdit} onBlur={e => e.target.value !== (person.note ?? '') && save({ note: e.target.value.trim() || null })} /></label>
           </div>
