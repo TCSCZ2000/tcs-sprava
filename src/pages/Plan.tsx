@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
-import { supabase, type RouteTime, type Trip } from '../lib/supabase'
+import { supabase, reportDone, REPORT_DONE_OR, type RouteTime, type Trip } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { carAlerts, inPlanning } from '../lib/cars'
 import { dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from '../lib/format'
@@ -67,10 +67,10 @@ export default function Plan() {
   }, [])
 
   useEffect(() => {
-    // Plán: všechny cesty bez ohledu na datum, dokud nejsou vyřízené (Finished s hotovým reportem).
+    // Plán: všechny cesty bez ohledu na datum, dokud nejsou vyřízené (Finished s hotovým reportem: číslo, odjezd z domova, příjezd domů).
     // Historie: jen vyřízené. Od/Do omezí obojí.
     let qb = supabase.from('trips').select('*')
-    qb = hist ? qb.eq('status', 'Finished').not('report_no', 'is', null) : qb.or('status.neq.Finished,status.is.null,report_no.is.null')
+    qb = hist ? qb.eq('status', 'Finished').not('report_no', 'is', null).not('dep_home', 'is', null).not('arr_home', 'is', null) : qb.or(REPORT_DONE_OR)
     if (from) qb = qb.gte('trip_date', from)
     if (to) qb = qb.lte('trip_date', to)
     qb.order('trip_date').order('trip_time', { nullsFirst: true })
@@ -82,7 +82,7 @@ export default function Plan() {
     })
   }, [from, to, hist, toast])
 
-  const resolved = (t: Trip) => t.status === 'Finished' && t.report_no != null
+  const resolved = reportDone
 
   // Živé změny od ostatních
   useEffect(() => {

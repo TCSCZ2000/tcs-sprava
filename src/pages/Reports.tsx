@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { supabase, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
+import { supabase, reportDone, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
 import { KIND_LABEL, baseLabel, groupRoutes, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
 import { composeRoute, copyRoute, createComposedRoute, eur, routeIncomplete, suggestRoutes, tripPrice, type LegPick, type MidPick } from '../lib/routes'
@@ -197,7 +197,7 @@ export default function Reports() {
               </td></tr>
               {rows.map(t => {
                 const st = statusBy.get(t.status ?? '')
-                const done = t.status === DONE
+                const done = reportDone(t)   // Finished bez časů (import z Excelu) je dál k dopsání
                 const tstops = stopsOf(t, stops)
                 const end = jobEnd(t, stops)
                 const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, end)

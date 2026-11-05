@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { supabase, supplierOf, supplierLabel, NO_SUPPLIER, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
+import { supabase, reportDone, supplierOf, supplierLabel, NO_SUPPLIER, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, todayIso } from '../lib/format'
@@ -50,7 +50,7 @@ export default function Hours() {
 
   const { segs } = useMemo(() => chainHours(trips, t => plannedStartIso(t, ridx, placeBy)), [trips, ridx, placeBy])
   const inMonth = (t: Trip) => t.trip_date >= from && t.trip_date < to
-  const counted = (t: Trip) => t.status === 'Finished' && t.report_no != null
+  const counted = reportDone
   const pendingTrips = useMemo(() => trips.filter(t => inMonth(t) && !counted(t) && t.status !== 'Canceled'), [trips, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo<Row[]>(() => {
