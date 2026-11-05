@@ -32,13 +32,17 @@ export function breakdown(t: Trip, route: Route | undefined, price: number, how:
   const toll = transport ? 0 : r2(Number(t.toll ?? (route ? totalToll(route) : 0)))
   return { price, how, currency, car: Math.min(car, price), toll: Math.min(toll, Math.max(0, price - car)), hrs: r2(Math.max(0, price - Math.min(car, price) - Math.min(toll, Math.max(0, price - car)))) }
 }
-export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null): Priced | null {
-  const r = tripPriceRaw(t, route, prices, hoursTotal, fixedH)
-  return r ? breakdown(t, route, r.price, r.how, r.currency) : null
+// Když trasa v ceníku chybí, počítá se ze sazeb zákazníka (fallback) a z km a mýta v reportu
+export type RateFallback = { rate_h: number; rate_km: number; currency: 'EUR' | 'CZK'; label: string }
+export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null, fallback?: RateFallback | null): Priced | null {
+  const r = tripPriceRaw(t, route, prices, hoursTotal, fixedH, fallback)
+  if (!r) return null
+  const rt = route ?? (fallback ? ({ rate_km: fallback.rate_km, ho_pup_km: 0, pup_dop_km: 0, dop_ho_km: 0, ho_pup_toll: 0, pup_dop_toll: 0, dop_ho_toll: 0 } as unknown as Route) : undefined)
+  return breakdown(t, rt, r.price, r.how, r.currency)
 }
-function tripPriceRaw(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null): { price: number; how: string; currency: 'EUR' | 'CZK' } | null {
+function tripPriceRaw(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null, fallback?: RateFallback | null): { price: number; how: string; currency: 'EUR' | 'CZK' } | null {
   const fixed = t.route_price_id ? prices.find(p => p.id === t.route_price_id) : undefined
-  const cur = fixed?.currency ?? route?.currency ?? 'EUR'
+  const cur = fixed?.currency ?? route?.currency ?? fallback?.currency ?? 'EUR'
   if (t.price_manual != null) return { price: Number(t.price_manual), how: 'Ruční cena (domluva se zákazníkem)', currency: cur }
   const m = (v: number) => money(v, cur)
   if (fixed && tripKind(t) === 'transport') {
@@ -71,17 +75,18 @@ function tripPriceRaw(t: Trip, route: Route | undefined, prices: RoutePrice[], h
       how: `Pevná cena ${fixed.label} ${m(base)} + ${crew} × ${fmtH(extra)} h navíc × ${route.rate_h} = ${m(add)} (od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h)`,
     }
   }
-  if (!route) return null
+  if (!route && !fallback) return null
   const crew = [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).length
   const hours = t.hours_manual ?? hoursTotal
   if (hours == null || crew === 0) return null
-  const km = t.km_total ?? totalKm(route)
+  const rateH = route ? Number(route.rate_h) : fallback!.rate_h, rateKm = route ? Number(route.rate_km) : fallback!.rate_km
+  const km = t.km_total ?? (route ? totalKm(route) : 0)
   const transport = tripKind(t) === 'transport'
-  const toll = transport ? 0 : (t.toll ?? totalToll(route))
-  const hrs = crew * hours * Number(route.rate_h), car = km * Number(route.rate_km)
+  const toll = transport ? 0 : Number(t.toll ?? (route ? totalToll(route) : 0))
+  const hrs = crew * hours * rateH, car = km * rateKm
   return {
     price: Math.round((hrs + car + toll) * 100) / 100, currency: cur,
-    how: `${crew} × ${hours} h × ${route.rate_h} + ${km} km × ${route.rate_km}${transport ? '' : ` + mýto ${toll}`}`,
+    how: `${crew} × ${hours} h × ${rateH} + ${km} km × ${rateKm}${transport ? '' : ` + mýto ${toll}`}${route ? '' : ` (${fallback!.label}, trasa v ceníku není)`}`,
   }
 }
 

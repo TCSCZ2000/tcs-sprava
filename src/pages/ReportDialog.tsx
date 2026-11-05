@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { isTcsCustomer, reportDone, tripKind, type Route, type RoutePrice, type Trip, type TripStop } from '../lib/supabase'
 import { useApp } from '../lib/data'
 import { fmtDT, parseDT } from '../lib/format'
-import { LEGS, money, routeIncomplete, totalH, totalKm, totalToll, type Priced } from '../lib/routes'
+import { LEGS, money, routeIncomplete, totalH, totalKm, totalToll, type Priced, type RateFallback } from '../lib/routes'
 
 // Detail reportu: celé datum a čas v polích, trasa z ceníku (úseky, sazby, pevné ceny) a cena na jednom místě.
 // Pro vyplňování i pro kontrolu hotového reportu. Ukládá se po polích, stejně jako v tabulce.
@@ -15,7 +15,7 @@ const TIMES: { key: TimeKey; label: string; tr?: string }[] = [
 
 export function ReportDialog(p: {
   trip: Trip; stops: TripStop[]; route: Route | undefined; variants: Route[]; prices: RoutePrice[]; priced: Priced | null; auto: Priced | null
-  sug: Partial<Trip>; total: string | null; escort: string | null; combi: React.ReactNode
+  sug: Partial<Trip>; total: string | null; escort: string | null; combi: React.ReactNode; fallback?: RateFallback | null
   canEdit: boolean; seePrice: boolean; canRoutes: boolean
   save: (patch: Partial<Trip>) => void; saveStop: (s: TripStop, key: 'arr' | 'dep', v: string, base: string) => void
   nextNumber: () => void; onSaveRoute: () => void; onSupplier: () => void; onClose: () => void; homeFor: (t: Trip) => string | null
@@ -110,7 +110,7 @@ export function ReportDialog(p: {
                   {variants.length > 1 && <> · varianta <select className="variantsel" disabled={!ed} value={route.id} onChange={e => save({ route_id: e.target.value || null })}>{variants.map(v => <option key={v.id} value={v.id}>{v.variant || 'základní'}{v.customer && v.customer !== t.customer ? ` (${v.customer})` : ''}</option>)}</select></>}</p>
               </div>
             ) : (
-              <p className="span4 missingtxt">Tahle trasa v ceníku není. {p.canRoutes && ed && <button className="link" onClick={p.onSaveRoute}>uložit trasu na příště</button>}</p>
+              <p className="span4 missingtxt">Tahle trasa v ceníku není.{p.fallback ? ` Cena se počítá ze sazeb zákazníka (${p.fallback.rate_h} ${p.fallback.currency === 'CZK' ? 'Kč' : '€'}/h, ${p.fallback.rate_km}/km) a z km a mýta v reportu.` : ''} {p.canRoutes && ed && <button className="link" onClick={p.onSaveRoute}>uložit trasu na příště</button>}</p>
             )}
             <label className="span2">Cena podle
               {t.price_manual != null
@@ -120,7 +120,7 @@ export function ReportDialog(p: {
                     <option value="">sazby (hodiny × {route.rate_h} + km × {route.rate_km}{transport ? '' : ' + mýto'})</option>
                     {prices.filter(x => x.route_id === route.id).map(x => <option key={x.id} value={x.id}>pevná {x.label}: {money(Number(x.price), x.currency)}{transport && (x.free_load_h != null || x.free_unload_h != null) ? ` (zdarma ${x.free_load_h ?? 0} h nakl., ${x.free_unload_h ?? 0} h vykl.)` : ''}</option>)}
                   </select>
-                : <span className="ro quiet">–</span>}
+                : p.fallback ? <span className="ro">sazby zákazníka ({p.fallback.rate_h}/h, {p.fallback.rate_km}/km)</span> : <span className="ro quiet">–</span>}
             </label>
             <label className="span2">Cena bez DPH
               <input className="mono" defaultValue={priced ? money(priced.price, priced.currency) : ''} key={'p' + priced?.price + t.price_manual} disabled={!ed} placeholder="zadat ručně"

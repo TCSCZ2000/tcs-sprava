@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, reportDone, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedHomeIso, plannedStartIso } from '../lib/planned'
 import { KIND_LABEL, baseLabel, groupRoutes, isTcsCustomer, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
-import { composeRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick, type Priced } from '../lib/routes'
+import { composeRoute, money, routeIncomplete, suggestRoutes, totalToll, tripPrice, type LegPick, type MidPick, type Priced, type RateFallback } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, fmtRel, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
@@ -161,12 +161,14 @@ export default function Reports() {
     save(t, { report_no: last + 1 })
   }
 
+  // výchozí sazby zákazníka, když trasa v ceníku chybí
+  const fallbackFor = (t: Trip): RateFallback | null => { const c = customers.find(x => x.name === t.customer); return c?.rate_h != null && c.rate_km != null ? { rate_h: Number(c.rate_h), rate_km: Number(c.rate_km), currency: c.currency, label: `sazby zákazníka ${c.name}` } : null }
   // cena cesty pro export a přílohy
   function priceOf(t: Trip) {
     const end = jobEnd(t, stops)
     const total = hours(t.dep_home, t.arr_home)
     const route = pickRoute(t, routeBy.get(tripRouteKey(t, stopsOf(t, stops))))
-    return tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && end ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) ?? '0').replace(',', '.')) : null)
+    return tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && end ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) ?? '0').replace(',', '.')) : null, fallbackFor(t))
   }
   // Přílohy k faktuře TCS NL / TCS DE za měsíc: hotové reporty v pořadí čísel, rozdělené po max. 21 000 € (jako listy Priloha v Excelu)
   const ATTACH_MAX = 21000
@@ -217,7 +219,7 @@ export default function Reports() {
       const end = jobEnd(t, stops)
       const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, end)
       const route = pickRoute(t, routeBy.get(tripRouteKey(t, stopsOf(t, stops))))
-      const pr = seePrice ? tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && end ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) ?? '0').replace(',', '.')) : null) : null
+      const pr = seePrice ? priceOf(t) : null
       const links = byNext.get(t.id) ?? []
       body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs, t.customer_ref, KIND_LABEL[tripKind(t)],
         placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, stopsOf(t, stops).map(s => `${placeBy.get(s.place_id)?.name} (${fmtDT(s.arr)} – ${fmtDT(s.dep)}, ${s.km ?? '?'} km)`).join('; '), t.base_from, t.base_to, t.takeover ? 'ano' : '',
@@ -349,8 +351,9 @@ export default function Reports() {
                       const opts = route ? rprices.filter(p => p.route_id === route.id) : []
                       const rq = t.trip_time ? hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) : null
                       const reqH = rq ? Number(rq.replace(',', '.')) : null
-                      const pr = tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, reqH)
-                      const auto = tripPrice({ ...t, price_manual: null }, route, rprices, total ? Number(total.replace(',', '.')) : null, reqH)
+                      const fb = fallbackFor(t)
+                      const pr = tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, reqH, fb)
+                      const auto = tripPrice({ ...t, price_manual: null }, route, rprices, total ? Number(total.replace(',', '.')) : null, reqH, fb)
                       return <>
                         <td>
                           {variants.length > 1 && (
@@ -447,7 +450,7 @@ export default function Reports() {
         const sug = t.pup_id && t.dop_id && !route ? suggestRoutes(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy, tstops.map(s => s.place_id)) : []
         const comp = !route && t.pup_id && t.dop_id && !sug.length ? composeRoute(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy, tstops.map(s => s.place_id)) : null
         return <ReportDialog trip={t} stops={tstops} route={route} variants={variants} prices={rprices}
-          priced={seePrice ? tripPrice(t, route, rprices, tot, reqH) : null} auto={seePrice ? tripPrice({ ...t, price_manual: null }, route, rprices, tot, reqH) : null}
+          priced={seePrice ? tripPrice(t, route, rprices, tot, reqH, fallbackFor(t)) : null} auto={seePrice ? tripPrice({ ...t, price_manual: null }, route, rprices, tot, reqH, fallbackFor(t)) : null} fallback={fallbackFor(t)}
           sug={canEdit && !reportDone(t) ? suggestFor(t) : {}} total={total} escort={escort}
           combi={combiCell(t, byNext.get(t.id) ?? [], canEdit && !reportDone(t), v => save(t, { combi: v }), personBy)}
           canEdit={canEdit} seePrice={seePrice} canRoutes={canRoutes} save={patch => save(t, patch)} saveStop={saveStop} nextNumber={() => nextNumber(t)}

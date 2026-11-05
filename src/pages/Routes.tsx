@@ -33,6 +33,12 @@ export default function Routes() {
   const [newVariant, setNewVariant] = useState('')
   const [newCust, setNewCust] = useState('TCS NL')
   const [custFilter, setCustFilter] = useState<string>('')   // '' = všichni
+  const [showCust, setShowCust] = useState(false)
+  const isAdmin = level('users') === 'write'
+  async function saveCustomer(name: string, patch: Record<string, unknown>) {
+    const { error } = await supabase.from('customers').update(patch).eq('name', name)
+    if (error) toast(explain(error), 'err'); else reloadLists()
+  }
   const [stops, setStops] = useState<StopsMap>(new Map())
   const [showMissing, setShowMissing] = useState(true)
 
@@ -166,10 +172,31 @@ export default function Routes() {
           {[{ name: '' }, ...customers].map(c => (
             <button key={c.name} className={'chip cust' + (custFilter === c.name ? '' : ' off')} onClick={() => setCustFilter(c.name)}>{c.name || 'všichni'}{c.name ? ` (${routes.filter(r => r.customer === c.name).length})` : ''}</button>
           ))}
+          {isAdmin && <button className="link small" onClick={() => setShowCust(v => !v)}>{showCust ? 'zavřít zákazníky' : 'zákazníci a výchozí sazby'}</button>}
         </div>
       </div>
       <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin Výjezd→PUP a DOP→Návrat počítá Planning Start a Home (základny CZ, NL, … spravujete v Místech). Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h. Každá trasa patří zákazníkovi (čipy nahoře filtrují ceník); u JTi má pevná cena místo hodin v ceně hodiny zdarma na nakládku (od objednaného času do naložení) a na vykládku (od příjezdu na vykládku do vyložení), přesah se účtuje po čtvrthodinách; měna EUR nebo CZK.</p>
 
+      {showCust && (
+        <div className="catpanel">
+          <p className="intro">Výchozí sazby zákazníka se použijí, když cesta nemá trasu v ceníku: hodiny × sazba × posádka + Km celkem × sazba/km + mýto z reportu. Řada čísel reportů: TCS NL a TCS DE sdílí řadu TCS, JTi mají každý svou.</p>
+          <table className="grid plain catgrid">
+            <thead><tr><th>Zákazník</th><th>Řada reportů</th><th className="num">Sazba /h</th><th className="num">Sazba /km</th><th>Měna</th><th>Aktivní</th></tr></thead>
+            <tbody>
+              {customers.map(c => (
+                <tr key={c.name}>
+                  <td><span className="ro"><strong>{c.name}</strong></span></td>
+                  <td><span className="ro quiet">{c.report_series}</span></td>
+                  <td className="num"><Text value={c.rate_h?.toString() ?? ''} time mono onSave={v => { const x = num(v); if (x === undefined) return toast('Sazbu pište jako číslo.', 'err'); saveCustomer(c.name, { rate_h: x }) }} /></td>
+                  <td className="num"><Text value={c.rate_km?.toString() ?? ''} time mono onSave={v => { const x = num(v); if (x === undefined) return toast('Sazbu pište jako číslo.', 'err'); saveCustomer(c.name, { rate_km: x }) }} /></td>
+                  <td><select className="variantsel" value={c.currency} onChange={e => saveCustomer(c.name, { currency: e.target.value })}><option>EUR</option><option>CZK</option></select></td>
+                  <td className="mid"><input type="checkbox" checked={c.active} onChange={e => saveCustomer(c.name, { active: e.target.checked })} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {canEdit && (
         <div className="newroute">
           <strong>{copyFrom ? `Kopie trasy ${name(copyFrom.pup_id)} → ${name(copyFrom.dop_id)} pro:` : 'Nová trasa:'}</strong>
