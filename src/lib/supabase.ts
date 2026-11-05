@@ -82,11 +82,11 @@ export interface Trip {
   kind: 'escort' | 'transport' | null
   guard1_supplier: string | null; guard2_supplier: string | null; guard3_supplier: string | null   // null = podle člověka
   car_supplier: string | null; supplier_km: number | null; supplier_toll: number | null             // auto od dodavatele
+  report_done_at: string | null   // report uzavřený tlačítkem Hotovo
 }
-// Hotový report: Finished a vyplněné číslo, odjezd z domova a příjezd domů (stejná podmínka jako tlačítko Hotovo v Reportech).
-// Cesta importovaná z Excelu se statusem Finished bez reportu hotová není: zůstává v Planningu a v Reportech jde dopsat.
-export const reportDone = (t: Pick<Trip, 'status' | 'report_no' | 'dep_home' | 'arr_home'>) => t.status === 'Finished' && t.report_no != null && !!t.dep_home && !!t.arr_home
-export const REPORT_DONE_OR = 'status.neq.Finished,status.is.null,report_no.is.null,dep_home.is.null,arr_home.is.null'   // filtr „není hotová“ pro PostgREST
+// Tok: Finished v Planningu → cesta je v Reportech k dopsání → Hotovo (report_done_at) → z Planningu do Historie.
+export const reportDone = (t: Pick<Trip, 'status' | 'report_done_at'>) => t.status === 'Finished' && t.report_done_at != null
+export const REPORT_DONE_OR = 'status.neq.Finished,status.is.null,report_done_at.is.null'   // filtr „není vyřízená“ pro PostgREST
 
 // Dodavatel člena posádky na dané cestě: přepsaný u cesty, jinak výchozí u člověka, jinak bez dodavatele
 export function supplierOf(t: Pick<Trip, 'guard1_id' | 'guard2_id' | 'guard3_id' | 'guard1_supplier' | 'guard2_supplier' | 'guard3_supplier'>, personId: string, personBy: Map<string, Person>): string {

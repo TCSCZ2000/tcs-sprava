@@ -13,14 +13,13 @@ import { TripDialog, emptyForm, formFromTrip, type TripForm } from './TripDialog
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
 const GROUP = 'Skupina ✅'
-const REPORT = 'Report'
 const NO_CUSTOMER = '—'
 const EARLY = ['HEADS-UP', 'Confirmed', 'Send']
 
 export default function Plan() {
   const { level, people, cars, places, statuses: allStatuses, customers, carCategories, docs, toast, reloadLists } = useApp()
   // Report = cesta odjela a čeká na dopsání reportu v záložce Reporty, v Planningu není
-  const statuses = useMemo(() => allStatuses.filter(s => s.name !== REPORT), [allStatuses])
+  const statuses = allStatuses
   const canNotes = level('planning') === 'write'
   const canCreate = level('planning_create') === 'write'
   const canStatus = level('planning_status') === 'write'
@@ -67,10 +66,10 @@ export default function Plan() {
   }, [])
 
   useEffect(() => {
-    // Plán: všechny cesty bez ohledu na datum, dokud nejsou vyřízené (Finished s hotovým reportem: číslo, odjezd z domova, příjezd domů).
+    // Plán: všechny cesty bez ohledu na datum, dokud nejsou vyřízené (Finished a report uzavřený tlačítkem Hotovo v Reportech).
     // Historie: jen vyřízené. Od/Do omezí obojí.
     let qb = supabase.from('trips').select('*')
-    qb = hist ? qb.eq('status', 'Finished').not('report_no', 'is', null).not('dep_home', 'is', null).not('arr_home', 'is', null) : qb.or(REPORT_DONE_OR)
+    qb = hist ? qb.eq('status', 'Finished').not('report_done_at', 'is', null) : qb.or(REPORT_DONE_OR)
     if (from) qb = qb.gte('trip_date', from)
     if (to) qb = qb.lte('trip_date', to)
     qb.order('trip_date').order('trip_time', { nullsFirst: true })
@@ -233,7 +232,7 @@ export default function Plan() {
   const visible = useMemo(() => {
     const s = q.trim().toLowerCase()
     return trips
-      .filter(t => t.status !== REPORT && resolved(t) === hist)
+      .filter(t => resolved(t) === hist)
       .filter(t => (!from || t.trip_date >= from) && (!to || t.trip_date <= to))
       .filter(t => !hidden.has(t.status ?? ''))
       .filter(t => !hiddenCust.has(t.customer ?? NO_CUSTOMER))
@@ -267,7 +266,7 @@ export default function Plan() {
   const carUse = useMemo(() => {
     const m = new Map<string, Trip[]>()
     for (const t of trips) {
-      if (!t.car_id || t.status === 'Finished' || t.status === 'Canceled' || t.status === REPORT) continue
+      if (!t.car_id || t.status === 'Finished' || t.status === 'Canceled') continue
       if (!m.has(t.car_id)) m.set(t.car_id, [])
       m.get(t.car_id)!.push(t)
     }
@@ -309,7 +308,7 @@ export default function Plan() {
         <label className="field">Do<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
         <div className="seg" role="group" aria-label="Plán nebo historie">
           <button className={hist ? '' : 'on'} aria-pressed={!hist} onClick={() => setHist(false)} title="Všechny cesty, které ještě nemají hotový report">Plán</button>
-          <button className={hist ? 'on' : ''} aria-pressed={hist} onClick={() => setHist(true)} title="Vyřízené cesty: Finished s hotovým reportem">Historie</button>
+          <button className={hist ? 'on' : ''} aria-pressed={hist} onClick={() => setHist(true)} title="Vyřízené cesty: Finished s reportem uzavřeným tlačítkem Hotovo">Historie</button>
         </div>
         <input className="search" placeholder="Hledat místo, jméno, SPZ, Ref…" value={q} onChange={e => setQ(e.target.value)} />
         <div className="statusfilter">
@@ -433,7 +432,7 @@ export default function Plan() {
                           const hit = allStatuses.find(x => x.name.toLowerCase() === n.toLowerCase())
                           if (!hit) return toast(`Napište status ze seznamu nebo referenční číslo ve tvaru A12345.`, 'err')
                           save(t, { status: hit.name })
-                          if (hit.name === REPORT) toast('Cesta přešla do záložky Reporty k dopsání reportu.')
+                          if (hit.name === 'Finished') toast('Cesta je v záložce Reporty k dopsání reportu; po Hotovo přejde do Historie.')
                         }} />
                     </td>
                     <td className={'custcell' + (t.customer ? '' : ' missing')}>

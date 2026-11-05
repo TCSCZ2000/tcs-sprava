@@ -10,7 +10,6 @@ import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { Text } from './Plan'
 import { SupplierDialog, supplierSummary } from './SupplierDialog'
 
-const REPORT = 'Report'
 const DONE = 'Finished'
 const NO_CUSTOMER = '—'
 
@@ -69,7 +68,8 @@ export default function Reports() {
     let q = supabase.from('trips').select('*').order('trip_date').order('trip_time', { nullsFirst: true })
     const [y, mo] = doneMonth.split('-').map(Number)
     const next = `${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}-01`
-    q = showDone ? q.or(`status.eq.${REPORT},and(status.eq.${DONE},trip_date.gte.${doneMonth}-01,trip_date.lt.${next})`) : q.eq('status', REPORT)
+    q = q.eq('status', DONE)
+    q = showDone ? q.or(`report_done_at.is.null,and(trip_date.gte.${doneMonth}-01,trip_date.lt.${next})`) : q.is('report_done_at', null)
     q.then(({ data, error }) => {
       if (error) toast(explain(error), 'err')
       setTrips((data as Trip[]) ?? []); setLoaded(true)
@@ -90,7 +90,7 @@ export default function Reports() {
         setTrips(cur => {
           if (payload.eventType === 'DELETE') return cur.filter(t => t.id !== (payload.old as Trip).id)
           const row = payload.new as Trip
-          const keep = row.status === REPORT || (showDone && row.status === DONE)
+          const keep = row.status === DONE && (!row.report_done_at || showDone)
           const i = cur.findIndex(t => t.id === row.id)
           if (!keep) return i === -1 ? cur : cur.filter(t => t.id !== row.id)
           if (i === -1) return [...cur, row]
@@ -155,7 +155,7 @@ export default function Reports() {
     return [...m.entries()].filter(([, r]) => r.length)
   }, [trips, customers, hiddenCust])
 
-  const waiting = trips.filter(t => t.status === REPORT).length
+  const waiting = trips.filter(t => t.status === DONE && !t.report_done_at).length
   const COLS = seePrice ? 26 : 24
 
   return (
@@ -177,7 +177,7 @@ export default function Reports() {
         <button className="ghostbtn" onClick={excel}>Excel</button>
         <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
       </div>
-      <p className="intro">Sem přijde každá cesta, které v Planningu dáte status Report. Časy pište jako 3:30 (den se doplní sám) nebo 2.11. 3:30. Hotový report uzavřete tlačítkem Hotovo, cesta dostane status Finished.</p>
+      <p className="intro">Sem spadne každá cesta, které v Planningu dáte status Finished. Časy pište jako 3:30 (den se doplní sám) nebo 2.11. 3:30. Hotový report uzavřete tlačítkem Hotovo; cesta tím zmizí z Planningu do Historie.</p>
 
       <div className="tablewrap">
         <table className="grid report">
@@ -197,7 +197,7 @@ export default function Reports() {
               </td></tr>
               {rows.map(t => {
                 const st = statusBy.get(t.status ?? '')
-                const done = reportDone(t)   // Finished bez časů (import z Excelu) je dál k dopsání
+                const done = reportDone(t)
                 const tstops = stopsOf(t, stops)
                 const end = jobEnd(t, stops)
                 const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, end)
@@ -298,11 +298,11 @@ export default function Reports() {
                       {canEdit && !done && (
                         <>
                           <button className="primary small" disabled={!ready} title={ready ? 'Uzavřít report' : 'Chybí číslo reportu, odjezd nebo příjezd domů'}
-                            onClick={() => save(t, { status: DONE })}>Hotovo</button>{' '}
+                            onClick={() => save(t, { report_done_at: new Date().toISOString() })}>Hotovo</button>{' '}
                           <button className="link small" onClick={() => save(t, { status: 'Departed' })} title="Vrátit cestu do Planningu se statusem Departed">Do Planningu</button>
                         </>
                       )}
-                      {canEdit && done && <button className="link small" onClick={() => save(t, { status: REPORT })}>Znovu otevřít</button>}
+                      {canEdit && done && <button className="link small" onClick={() => save(t, { report_done_at: null })}>Znovu otevřít</button>}
                       {done && !canEdit && <span className="quiet">hotovo</span>}
                     </td>
                   </tr>
