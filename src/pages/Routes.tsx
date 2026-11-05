@@ -17,7 +17,9 @@ const num = (v: string): Num | undefined => {
 const fmt = (v: Num) => (v == null ? '' : String(v).replace('.', ','))
 
 export default function Routes() {
-  const { level, places, toast, reloadLists } = useApp()
+  const { level, places, customers, toast, reloadLists } = useApp()
+  // přeprava (JTi): pevná cena má hodiny zdarma na nakládku/vykládku místo „hodin v ceně“
+  const transportCust = (c: string | null) => (c ?? '').toUpperCase().startsWith('JTI')
   const canEdit = level('routes') === 'write'
   const [routes, setRoutes] = useState<Route[]>([])
   const [prices, setPrices] = useState<RoutePrice[]>([])
@@ -29,6 +31,8 @@ export default function Routes() {
   const [newFrom, setNewFrom] = useState('CZ')
   const [newTo, setNewTo] = useState('CZ')
   const [newVariant, setNewVariant] = useState('')
+  const [newCust, setNewCust] = useState('TCS NL')
+  const [custFilter, setCustFilter] = useState<string>('')   // '' = všichni
   const [stops, setStops] = useState<StopsMap>(new Map())
   const [showMissing, setShowMissing] = useState(true)
 
@@ -72,8 +76,8 @@ export default function Routes() {
     toast(mid ? 'Trasa založena z úseků včetně PUP→DOP. Zkontrolujte ji.' : 'Trasa založena z úseků, doplňte PUP→DOP (km, hodiny, mýto).'); load()
   }
 
-  async function createRoute(pup: string, dop: string, from: string, to: string, src?: Route, variant = '', st: string[] = []) {
-    const { error } = await copyRoute(src, pup, dop, from, to, prices, variant, st)
+  async function createRoute(pup: string, dop: string, from: string, to: string, src?: Route, variant = '', st: string[] = [], customer: string | null = src?.customer ?? (newCust || null)) {
+    const { error } = await copyRoute(src, pup, dop, from, to, prices, variant, st, customer)
     if (error) return toast(error, 'err')
     toast(src ? `Trasa zkopírována z ${name(src.pup_id)} → ${name(src.dop_id)}. Zkontrolujte km a ceny.` : 'Trasa založena, doplňte úseky a ceny.')
     setCopyFrom(null); setNewPup(''); setNewDop(''); setNewFrom('CZ'); setNewTo('CZ'); setNewVariant(''); load()
@@ -110,10 +114,16 @@ export default function Routes() {
   async function addPrice(r: Route) {
     const label = window.prompt('Název pevné ceny, např. 10 h nebo 20 h')?.trim()
     if (!label) return
-    const pv = num(window.prompt(`Cena „${label}“ v € bez DPH`) ?? '')
+    const pv = num(window.prompt(`Cena „${label}“ v ${r.currency === 'CZK' ? 'Kč' : '€'} bez DPH`) ?? '')
     if (pv == null) return toast('Cena musí být číslo.', 'err')
     const h = num(label.replace(/h/i, ''))
-    const { error } = await supabase.from('route_prices').insert({ route_id: r.id, label, price: pv, pup_dop_h: h ?? null, sort: prices.filter(p => p.route_id === r.id).length + 1 })
+    let free: { free_load_h: number | null; free_unload_h: number | null } = { free_load_h: null, free_unload_h: null }
+    if (transportCust(r.customer)) {
+      const fl = num(window.prompt('Hodin zdarma na nakládku (od objednaného času do naložení)', '3') ?? '')
+      const fu = num(window.prompt('Hodin zdarma na vykládku (od příjezdu na vykládku do vyložení)', '4') ?? '')
+      free = { free_load_h: fl ?? null, free_unload_h: fu ?? null }
+    }
+    const { error } = await supabase.from('route_prices').insert({ route_id: r.id, label, price: pv, pup_dop_h: transportCust(r.customer) ? null : h ?? null, currency: r.currency, ...free, sort: prices.filter(p => p.route_id === r.id).length + 1 })
     if (error) return toast(explain(error), 'err')
     load()
   }
@@ -130,14 +140,15 @@ export default function Routes() {
     // každé slovo zvlášť („frankfurt rudna“ najde KN Frankfurt → Schenker Rudná), bez diakritiky, i v městech
     const words = fold(q).split(/\s+/).filter(Boolean)
     return routes
+      .filter(r => !custFilter || (r.customer ?? '') === custFilter)
       .filter(r => {
         if (!words.length) return true
-        const hay = fold(`${name(r.pup_id)} ${city(r.pup_id)} ${name(r.dop_id)} ${city(r.dop_id)}`)
+        const hay = fold(`${name(r.pup_id)} ${city(r.pup_id)} ${name(r.dop_id)} ${city(r.dop_id)} ${r.customer_ref ?? ''}`)
         return words.every(w => hay.includes(w))
       })
       .sort((a, b) => (name(a.pup_id) + name(a.dop_id) + a.base_from + a.base_to + a.variant).localeCompare(name(b.pup_id) + name(b.dop_id) + b.base_from + b.base_to + b.variant, 'cs'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routes, q, places])
+  }, [routes, q, places, custFilter])
 
   const numCell = (r: Route, k: keyof Route) => (
     <Text disabled={!canEdit} value={fmt(r[k] as Num)} time mono
@@ -151,8 +162,13 @@ export default function Routes() {
         <h1>Trasy a ceny</h1>
         <span className="count">{routes.length} tras</span>
         <input className="search" placeholder="Hledat (třeba frankfurt rudna)" value={q} onChange={e => setQ(e.target.value)} />
+        <div className="statusfilter custfilter">
+          {[{ name: '' }, ...customers].map(c => (
+            <button key={c.name} className={'chip cust' + (custFilter === c.name ? '' : ' off')} onClick={() => setCustFilter(c.name)}>{c.name || 'všichni'}{c.name ? ` (${routes.filter(r => r.customer === c.name).length})` : ''}</button>
+          ))}
+        </div>
       </div>
-      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin Výjezd→PUP a DOP→Návrat počítá Planning Start a Home (základny CZ, NL, … spravujete v Místech). Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h.</p>
+      <p className="intro">Cena cesty se počítá jako v 10_26: hodiny každého z posádky × sazba/h + km × sazba/km + mýto. Sazba/h je na jednoho člena posádky. Z hodin Výjezd→PUP a DOP→Návrat počítá Planning Start a Home (základny CZ, NL, … spravujete v Místech). Pevných cen může mít trasa víc (třeba 10 h a 20 h), u cesty si v Reportech jednu vyberete; každá započatá čtvrthodina od requestu do odjezdu z Dop nad sjednané hodiny se připočte × počet lidí × sazba/h. Každá trasa patří zákazníkovi (čipy nahoře filtrují ceník); u JTi má pevná cena místo hodin v ceně hodiny zdarma na nakládku (od objednaného času do naložení) a na vykládku (od příjezdu na vykládku do vyložení), přesah se účtuje po čtvrthodinách; měna EUR nebo CZK.</p>
 
       {canEdit && (
         <div className="newroute">
@@ -161,6 +177,7 @@ export default function Routes() {
           <span>→</span>
           <input className="search" list="dl-places" placeholder="Dop" value={newDop} onChange={e => setNewDop(e.target.value)} />
           <span className="quiet">výjezd z</span><BaseSelect value={newFrom} onChange={setNewFrom} /><span className="quiet">návrat do</span><BaseSelect value={newTo} onChange={setNewTo} />
+          <select value={newCust} onChange={e => setNewCust(e.target.value)} title="Zákazník, pro kterého ceník platí"><option value="">bez zákazníka</option>{customers.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</select>
           <input className="search" style={{ minWidth: '8rem', flex: '0 1 10rem' }} placeholder="varianta (třeba přes Francii)" title="Vyplňte, když stejná trasa jede jinudy: přes Francii, přes Švýcarsko… Prázdné = základní varianta." value={newVariant} onChange={e => setNewVariant(e.target.value)} />
           <button className="primary" onClick={submitNew}>{copyFrom ? 'Zkopírovat' : 'Založit'}</button>
           {copyFrom && <button className="link" onClick={() => setCopyFrom(null)}>Zrušit kopírování</button>}
@@ -202,7 +219,7 @@ export default function Routes() {
               <th rowSpan={2}>Pup</th><th rowSpan={2}>Dop</th><th rowSpan={2} title="Varianta stejné trasy, třeba přes Francii / přes Švýcarsko. Prázdné = základní. V Reportech a Planningu si u cesty vyberete, která platí.">Varianta</th>
               {LEGS.map(l => <th key={l.key} colSpan={3} className="legh">{l.label}</th>)}
               <th colSpan={3} className="legh">Celkem</th>
-              <th rowSpan={2} title="Základna: odkud posádka vyjíždí a kam se vrací. Výchozí CZ → CZ. Cesta v Planningu si vybere trasu se stejnou dvojicí.">Základna výjezd / návrat</th><th rowSpan={2}>€/h</th><th rowSpan={2}>€/km</th><th rowSpan={2}>Pevné ceny</th>{canEdit && <th rowSpan={2} />}
+              <th rowSpan={2} title="Základna: odkud posádka vyjíždí a kam se vrací. Výchozí CZ → CZ. Cesta v Planningu si vybere trasu se stejnou dvojicí.">Základna výjezd / návrat</th><th rowSpan={2} title="Komu ceník patří; stejná trasa může mít ceny pro víc zákazníků">Zákazník</th><th rowSpan={2}>Měna</th><th rowSpan={2} title="Sazba za hodinu na jednoho člena posádky">/h</th><th rowSpan={2}>/km</th><th rowSpan={2} title="Pevná cena; u přeprav i hodiny zdarma na nakládku a vykládku">Pevné ceny</th><th rowSpan={2} title="Výchozí reference zákazníka u opakujících se tras (JTi); u cesty se předvyplní">Výchozí ref.</th>{canEdit && <th rowSpan={2} />}
             </tr>
             <tr>
               {[...LEGS, { key: 'sum' }].map(l => [<th key={l.key + 'k'}>km</th>, <th key={l.key + 'h'}>h</th>, <th key={l.key + 't'}>mýto</th>])}
@@ -221,18 +238,25 @@ export default function Routes() {
                 ])}
                 <td className="ro num sum">{totalKm(r)}</td><td className="ro num sum">{fmt(totalH(r))}</td><td className="ro num sum">{totalToll(r)}</td>
                 <td className="basecell"><BaseSelect value={r.base_from} disabled={!canEdit} onChange={v => saveRoute(r, { base_from: v })} />→<BaseSelect value={r.base_to} disabled={!canEdit} onChange={v => saveRoute(r, { base_to: v })} /></td>
+                <td><select className="variantsel" disabled={!canEdit} value={r.customer ?? ''} onChange={e => saveRoute(r, { customer: e.target.value || null })}><option value="">—</option>{customers.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</select></td>
+                <td><select className="variantsel" disabled={!canEdit} value={r.currency} onChange={e => { const cur = e.target.value as Route['currency']; saveRoute(r, { currency: cur }); supabase.from('route_prices').update({ currency: cur }).eq('route_id', r.id).then(() => load()) }}><option>EUR</option><option>CZK</option></select></td>
                 <td>{numCell(r, 'rate_h')}</td><td>{numCell(r, 'rate_km')}</td>
                 <td className="prices">
                   {prices.filter(p => p.route_id === r.id).map(p => (
-                    <span key={p.id} className="pricechip">
-                      <Text disabled={!canEdit} value={p.label} time onSave={v => v.trim() && savePrice(p, { label: v.trim() })} />
+                    <span key={p.id} className="pricechip" title={transportCust(r.customer) ? 'Pevná cena · hodiny zdarma na nakládku · na vykládku' : 'Název (hodiny v ceně) · cena'}>
+                      <Text disabled={!canEdit} value={p.label} time onSave={v => v.trim() && savePrice(p, { label: v.trim(), ...(transportCust(r.customer) ? {} : { pup_dop_h: num(v.replace(/h/i, '')) ?? p.pup_dop_h }) })} />
                       <Text disabled={!canEdit} value={fmt(p.price)} time mono
                         onSave={v => { const x = num(v); if (x == null) return toast('Cena musí být číslo.', 'err'); savePrice(p, { price: x }) }} />
+                      {transportCust(r.customer) && <>
+                        <Text disabled={!canEdit} value={fmt(p.free_load_h)} time mono placeholder="nakl. h" onSave={v => { const x = num(v); if (x === undefined) return toast('Hodiny jako číslo.', 'err'); savePrice(p, { free_load_h: x }) }} />
+                        <Text disabled={!canEdit} value={fmt(p.free_unload_h)} time mono placeholder="vykl. h" onSave={v => { const x = num(v); if (x === undefined) return toast('Hodiny jako číslo.', 'err'); savePrice(p, { free_unload_h: x }) }} />
+                      </>}
                       {canEdit && <button className="ghost" aria-label={`Smazat cenu ${p.label}`} onClick={() => removePrice(p)}>×</button>}
                     </span>
                   ))}
                   {canEdit && <button className="link small" onClick={() => addPrice(r)}>+ cena</button>}
                 </td>
+                <td><Text disabled={!canEdit} value={r.customer_ref ?? ''} mono placeholder="–" onSave={v => saveRoute(r, { customer_ref: v.trim() || null })} /></td>
                 {canEdit && (
                   <td className="actions nowrap">
                     <button className="link small" onClick={() => { setCopyFrom(r); setNewPup(name(r.pup_id)); setNewDop(''); setNewFrom(r.base_from); setNewTo(r.base_to); setNewVariant(''); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Kopírovat</button>

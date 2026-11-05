@@ -1,4 +1,4 @@
-import { supabase, type Place, type Route, type RoutePrice, type Trip } from './supabase'
+import { supabase, tripKind, type Place, type Route, type RoutePrice, type Trip } from './supabase'
 
 export const LEGS = [
   { key: 'ho_pup', label: 'Výjezd→PUP' },
@@ -12,6 +12,9 @@ export const totalH = (r: Route) => n(r.ho_pup_h) + n(r.pup_dop_h) + n(r.dop_ho_
 export const totalToll = (r: Route) => n(r.ho_pup_toll) + n(r.pup_dop_toll) + n(r.dop_ho_toll)
 
 export const eur = (v: number) => v.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' €'
+export const money = (v: number, cur: 'EUR' | 'CZK' | null | undefined) => v.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + (cur === 'CZK' ? ' Kč' : ' €')
+const q4 = (h: number) => Math.max(0, Math.ceil(h * 4 - 1e-9) / 4)   // započaté čtvrthodiny
+const hrsBetween = (a: string | null | undefined, b: string | null | undefined) => (a && b ? (new Date(b).getTime() - new Date(a).getTime()) / 36e5 : null)
 
 const fmtH = (h: number) => h.toString().replace('.', ',')
 
@@ -19,21 +22,40 @@ const fmtH = (h: number) => h.toString().replace('.', ',')
 // Ruční cena přebije vše. Pevná cena platí pro X h mezi Pup a Dop; skutečné hodiny navíc
 // (request čas cesty → odjezd z Dop) se zaokrouhlí nahoru na čtvrthodiny a připočtou × počet lidí × sazba/h (sazba je na 1 člena posádky).
 // Jinak: hodiny každého z posádky × sazba/h + km × sazba/km + mýto.
-export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null) {
-  if (t.price_manual != null) return { price: Number(t.price_manual), how: 'Ruční cena (domluva se zákazníkem)' }
+export type Priced = { price: number; how: string; currency: 'EUR' | 'CZK' }
+export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null): Priced | null {
   const fixed = t.route_price_id ? prices.find(p => p.id === t.route_price_id) : undefined
+  const cur = fixed?.currency ?? route?.currency ?? 'EUR'
+  if (t.price_manual != null) return { price: Number(t.price_manual), how: 'Ruční cena (domluva se zákazníkem)', currency: cur }
+  const m = (v: number) => money(v, cur)
+  if (fixed && tripKind(t) === 'transport') {
+    // Přeprava: pevná cena, v ní X h zdarma na nakládku (objednaný čas → naloženo) a Y h na vykládku (příjezd na vykládku → vyloženo)
+    const base = Number(fixed.price)
+    const req = t.trip_time ? `${t.trip_date}T${t.trip_time.slice(0, 5)}:00` : null
+    const load = hrsBetween(req, t.dep_pup), unload = hrsBetween(t.arr_dop, t.dep_dop)
+    const fl = fixed.free_load_h == null ? null : Number(fixed.free_load_h), fu = fixed.free_unload_h == null ? null : Number(fixed.free_unload_h)
+    if (fl == null && fu == null) return { price: base, how: `Pevná cena ${fixed.label} (bez hodin zdarma, nic navíc se nepočítá)`, currency: cur }
+    const parts: string[] = []; let extra = 0
+    if (fl != null) { if (load == null) parts.push('nakládka: chybí objednaný čas nebo Naloženo'); else { const e = q4(load - fl); extra += e; parts.push(`nakládka ${fmtH(Math.round(load * 100) / 100)} h, zdarma ${fmtH(fl)} h → ${e ? fmtH(e) + ' h navíc' : 'ok'}`) } }
+    if (fu != null) { if (unload == null) parts.push('vykládka: chybí Příjezd na vykládku nebo Vyloženo'); else { const e = q4(unload - fu); extra += e; parts.push(`vykládka ${fmtH(Math.round(unload * 100) / 100)} h, zdarma ${fmtH(fu)} h → ${e ? fmtH(e) + ' h navíc' : 'ok'}`) } }
+    const crew = Math.max(1, [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).length)
+    const rate = route ? Number(route.rate_h) : 0
+    const add = extra * rate * crew
+    return { price: Math.round((base + add) * 100) / 100, currency: cur,
+      how: `Pevná cena ${fixed.label} ${m(base)}${add ? ` + ${crew > 1 ? crew + ' × ' : ''}${fmtH(extra)} h navíc × ${rate} = ${m(add)}` : ''}; ${parts.join('; ')}` }
+  }
   if (fixed) {
     const base = Number(fixed.price)
-    if (fixed.pup_dop_h == null || !route) return { price: base, how: `Pevná cena ${fixed.label}` }
-    if (fixedH == null) return { price: base, how: `Pevná cena ${fixed.label} (hodiny navíc se dopočtou, až bude vyplněný odjezd z Dop)` }
-    const extra = Math.max(0, Math.ceil((fixedH - Number(fixed.pup_dop_h)) * 4 - 1e-9) / 4)
-    if (extra === 0) return { price: base, how: `Pevná cena ${fixed.label}, od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h – nic navíc` }
+    if (fixed.pup_dop_h == null || !route) return { price: base, how: `Pevná cena ${fixed.label}`, currency: cur }
+    if (fixedH == null) return { price: base, how: `Pevná cena ${fixed.label} (hodiny navíc se dopočtou, až bude vyplněný odjezd z Dop)`, currency: cur }
+    const extra = q4(fixedH - Number(fixed.pup_dop_h))
+    if (extra === 0) return { price: base, how: `Pevná cena ${fixed.label}, od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h – nic navíc`, currency: cur }
     const crew = [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).length
-    if (crew === 0) return { price: base, how: `Pevná cena ${fixed.label} + ${fmtH(extra)} h navíc – chybí posádka, hodiny navíc nejde spočítat` }
+    if (crew === 0) return { price: base, how: `Pevná cena ${fixed.label} + ${fmtH(extra)} h navíc – chybí posádka, hodiny navíc nejde spočítat`, currency: cur }
     const add = crew * extra * Number(route.rate_h)
     return {
-      price: Math.round((base + add) * 100) / 100,
-      how: `Pevná cena ${fixed.label} ${eur(base)} + ${crew} × ${fmtH(extra)} h navíc × ${route.rate_h} € = ${eur(add)} (od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h)`,
+      price: Math.round((base + add) * 100) / 100, currency: cur,
+      how: `Pevná cena ${fixed.label} ${m(base)} + ${crew} × ${fmtH(extra)} h navíc × ${route.rate_h} = ${m(add)} (od requestu do odjezdu z Dop ${fmtH(Math.round(fixedH * 100) / 100)} h)`,
     }
   }
   if (!route) return null
@@ -41,11 +63,12 @@ export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[
   const hours = t.hours_manual ?? hoursTotal
   if (hours == null || crew === 0) return null
   const km = t.km_total ?? totalKm(route)
-  const toll = t.toll ?? totalToll(route)
+  const transport = tripKind(t) === 'transport'
+  const toll = transport ? 0 : (t.toll ?? totalToll(route))
   const hrs = crew * hours * Number(route.rate_h), car = km * Number(route.rate_km)
   return {
-    price: Math.round((hrs + car + toll) * 100) / 100,
-    how: `${crew} × ${hours} h × ${route.rate_h} € + ${km} km × ${route.rate_km} € + mýto ${toll} €`,
+    price: Math.round((hrs + car + toll) * 100) / 100, currency: cur,
+    how: `${crew} × ${hours} h × ${route.rate_h} + ${km} km × ${route.rate_km}${transport ? '' : ` + mýto ${toll}`}`,
   }
 }
 
@@ -68,12 +91,12 @@ export function suggestRoutes(pup: string, dop: string, from: string, to: string
 }
 
 // Založí trasu jako kopii jiné (úseky, sazby, pevné ceny); vrací chybu nebo null
-export async function copyRoute(src: Route | undefined, pup: string, dop: string, from: string, to: string, prices: RoutePrice[], variant = '', stops: string[] = []): Promise<{ error: string | null; id?: string }> {
-  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'base_from', 'base_to', 'variant', 'stops'].includes(k))) : {}
-  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, variant, stops, copied_from: src?.id ?? null }).select().single()
+export async function copyRoute(src: Route | undefined, pup: string, dop: string, from: string, to: string, prices: RoutePrice[], variant = '', stops: string[] = [], customer: string | null = src?.customer ?? null): Promise<{ error: string | null; id?: string }> {
+  const vals = src ? Object.fromEntries(Object.entries(src).filter(([k]) => !['id', 'pup_id', 'dop_id', 'copied_from', 'updated_at', 'updated_by', 'note', 'base_from', 'base_to', 'variant', 'stops', 'customer'].includes(k))) : {}
+  const { data, error } = await supabase.from('routes').insert({ ...vals, pup_id: pup, dop_id: dop, base_from: from, base_to: to, variant, stops, customer, copied_from: src?.id ?? null }).select().single()
   if (error) return { error: error.code === '23505' ? (variant ? `Varianta „${variant}“ už u téhle trasy je.` : 'Tahle trasa už existuje. Pro další variantu (třeba „přes Francii“) vyplňte název varianty.') : error.message }
   if (src) {
-    const ps = prices.filter(p => p.route_id === src.id).map(p => ({ route_id: (data as Route).id, label: p.label, pup_dop_h: p.pup_dop_h, price: p.price, sort: p.sort }))
+    const ps = prices.filter(p => p.route_id === src.id).map(p => ({ route_id: (data as Route).id, label: p.label, pup_dop_h: p.pup_dop_h, price: p.price, sort: p.sort, currency: p.currency, free_load_h: p.free_load_h, free_unload_h: p.free_unload_h }))
     if (ps.length) await supabase.from('route_prices').insert(ps)
   }
   return { error: null, id: (data as Route).id }
@@ -114,9 +137,9 @@ export function composeRoute(pup: string, dop: string, from: string, to: string,
   return { ho: pick('pup_id', pup, 'ho_pup_h', 'ho_pup_km'), dh: pick('dop_id', last, 'dop_ho_h', 'dop_ho_km'), mid }
 }
 
-export async function createComposedRoute(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null, stops: string[] = [], mid: MidPick | null = null): Promise<{ error: string | null }> {
+export async function createComposedRoute(pup: string, dop: string, from: string, to: string, ho: LegPick | null, dh: LegPick | null, stops: string[] = [], mid: MidPick | null = null, customer: string | null = null): Promise<{ error: string | null }> {
   const src = ho?.route ?? dh?.route
-  const vals: Partial<Route> = { rate_h: src?.rate_h ?? 10, rate_km: src?.rate_km ?? 0.28, stops }
+  const vals: Partial<Route> = { rate_h: src?.rate_h ?? 10, rate_km: src?.rate_km ?? 0.28, stops, customer: customer ?? src?.customer ?? null, currency: src?.currency ?? 'EUR' }
   if (mid) Object.assign(vals, { pup_dop_km: mid.km, pup_dop_h: mid.h, pup_dop_toll: mid.toll })
   if (ho) Object.assign(vals, { ho_pup_km: ho.route.ho_pup_km, ho_pup_h: ho.route.ho_pup_h, ho_pup_toll: ho.route.ho_pup_toll })
   if (dh) Object.assign(vals, { dop_ho_km: dh.route.dop_ho_km, dop_ho_h: dh.route.dop_ho_h, dop_ho_toll: dh.route.dop_ho_toll })

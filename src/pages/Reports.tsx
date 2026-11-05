@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase, reportDone, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
-import { KIND_LABEL, baseLabel, groupRoutes, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
-import { composeRoute, copyRoute, createComposedRoute, eur, routeIncomplete, suggestRoutes, tripPrice, type LegPick, type MidPick } from '../lib/routes'
+import { KIND_LABEL, baseLabel, groupRoutes, isTcsCustomer, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
+import { composeRoute, copyRoute, createComposedRoute, money, routeIncomplete, suggestRoutes, tripPrice, type LegPick, type MidPick } from '../lib/routes'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
@@ -34,13 +34,13 @@ export default function Reports() {
   useEffect(() => { if (seePrice) loadRoutes() }, [seePrice])
   const canRoutes = level('routes') === 'write'
   async function adoptRoute(t: Trip, src: Route) {
-    const { error } = await copyRoute(src, t.pup_id!, t.dop_id!, t.base_from, t.base_to, rprices, '', stopsOf(t, stops).map(s => s.place_id))
+    const { error } = await copyRoute(src, t.pup_id!, t.dop_id!, t.base_from, t.base_to, rprices, '', stopsOf(t, stops).map(s => s.place_id), t.customer)
     if (error) return toast(error, 'err')
     toast(`Trasa ${placeBy.get(t.pup_id!)?.name} → ${placeBy.get(t.dop_id!)?.name} založena jako kopie. Zkontrolujte ji v Trasách a cenách.`)
     loadRoutes()
   }
   async function composeFor(t: Trip, ho: LegPick | null, dh: LegPick | null, mid: MidPick | null) {
-    const { error } = await createComposedRoute(t.pup_id!, t.dop_id!, t.base_from, t.base_to, ho, dh, stopsOf(t, stops).map(s => s.place_id), mid)
+    const { error } = await createComposedRoute(t.pup_id!, t.dop_id!, t.base_from, t.base_to, ho, dh, stopsOf(t, stops).map(s => s.place_id), mid, t.customer)
     if (error) return toast(error, 'err')
     toast(mid ? 'Trasa založena z úseků včetně PUP→DOP. Zkontrolujte ji v Trasách a cenách.' : `Trasa založena z úseků. Doplňte PUP→DOP v Trasách a cenách (km, hodiny, mýto).`)
     loadRoutes()
@@ -122,14 +122,15 @@ export default function Reports() {
   }
 
   async function nextNumber(t: Trip) {
-    const { data } = await supabase.from('trips').select('report_no').not('report_no', 'is', null).order('report_no', { ascending: false }).limit(1)
+    if (!t.report_series) return toast('Nejdřív vyberte zákazníka, čísla reportů mají řady (TCS, JTi AGS, JTi CZ, JTi SK).', 'err')
+    const { data } = await supabase.from('trips').select('report_no').eq('report_series', t.report_series).not('report_no', 'is', null).order('report_no', { ascending: false }).limit(1)
     const last = (data as { report_no: number }[] | null)?.[0]?.report_no
-    if (!last) return toast('Zatím není žádné číslo reportu. Napište první ručně, další už aplikace dopočítá.', 'err')
+    if (!last) return toast(`V řadě ${t.report_series} zatím není žádné číslo reportu. Napište první ručně, další už aplikace dopočítá.`, 'err')
     save(t, { report_no: last + 1 })
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', 'Dodavatel', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena € bez DPH', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Ref. zákazníka', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', 'Dodavatel', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'Cena bez DPH', 'Měna', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const end = jobEnd(t, stops)
@@ -137,13 +138,13 @@ export default function Reports() {
       const route = pickRoute(t, routeBy.get(tripRouteKey(t, stopsOf(t, stops))))
       const pr = seePrice ? tripPrice(t, route, rprices, total ? Number(total.replace(',', '.')) : null, t.trip_time && end ? Number((hours(`${t.trip_date}T${t.trip_time.slice(0, 5)}:00`, end) ?? '0').replace(',', '.')) : null) : null
       const links = byNext.get(t.id) ?? []
-      body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs, KIND_LABEL[tripKind(t)],
+      body.push([t.trip_date.split('-').reverse().join('.'), t.trip_time?.slice(0, 5), t.customer, t.report_no, t.ref_tcs, t.customer_ref, KIND_LABEL[tripKind(t)],
         placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, stopsOf(t, stops).map(s => `${placeBy.get(s.place_id)?.name} (${fmtDT(s.arr)} – ${fmtDT(s.dep)}, ${s.km ?? '?'} km)`).join('; '), t.base_from, t.base_to, t.takeover ? 'ano' : '',
         [t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', '),
         carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no, supplierSummary(t, personBy).join('; '),
         ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
         t.combi === true ? 'ano' : t.combi === false ? 'ne' : links.some(l => l.kind === 'auto' || l.kind === 'overlap') ? 'navrženo' : '',
-        route ? variantLabel(route.variant) : '', pr?.how, pr?.price, t.report_note, t.status])
+        route ? variantLabel(route.variant) : '', pr?.how, pr?.price, pr?.currency, t.report_note, t.status])
     }
     exportXlsx(`reporty_${showDone ? doneMonth : todayIso()}`, [{ name: 'Reporty', rows: [head, ...body] }])
   }
@@ -186,7 +187,7 @@ export default function Reports() {
               <th>Datum</th><th>Zákazník</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th>Posádka</th><th>Auto</th>
               {TIMES.map(x => <th key={x.key}>{x.label}</th>)}
               <th>Km Pup</th><th>Km Dop</th><th>Km celkem</th><th>Mýto €</th>
-              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th><th title="Navazuje na předchozí cestu posádky: konec předchozí cesty se pro hodiny lidí posune na start téhle. Překryv vždy, mezera do 6 h se navrhne sama.">Navazuje</th>{seePrice && <><th>Cena podle</th><th title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena € bez DPH</th></>}<th>Poznámka</th><th />
+              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th><th title="Navazuje na předchozí cestu posádky: konec předchozí cesty se pro hodiny lidí posune na start téhle. Překryv vždy, mezera do 6 h se navrhne sama.">Navazuje</th>{seePrice && <><th>Cena podle</th><th title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena bez DPH</th></>}<th>Poznámka</th><th />
             </tr>
           </thead>
           {groups.map(([cust, rows]) => (
@@ -203,6 +204,10 @@ export default function Reports() {
                 const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, end)
                 const ready = !!t.report_no && !!t.dep_home && !!t.arr_home
                 const ed = canEdit && !done
+                const transport = tripKind(t) === 'transport'   // přeprava: jen Odjezd, Naloženo, Příjezd na vykládku, Vyloženo, Příjezd, Km celkem
+                const tcs = isTcsCustomer(t.customer, customers)
+                const routeNow = pickRoute(t, routeBy.get(tripRouteKey(t, tstops)))
+                const TR_LABEL: Partial<Record<TimeKey, string>> = { dep_pup: 'Naloženo', arr_dop: 'Příjezd na vykládku', dep_dop: 'Vyloženo' }
                 return (
                   <Fragment key={t.id}>
                   <tr className={'trip' + (done ? ' done' : '')} style={{ ['--c' as string]: st?.color ?? '#c9d1d6' }}>
@@ -213,16 +218,18 @@ export default function Reports() {
                         onSave={v => { const n = v.trim(); if (n && !/^\d+$/.test(n)) return toast('Číslo reportu jsou jen číslice.', 'err'); save(t, { report_no: n ? Number(n) : null }) }} />
                       {ed && !t.report_no && <button className="link small" onClick={() => nextNumber(t)}>další</button>}
                     </td>
-                    <td><Text disabled={!ed} value={t.ref_tcs ?? ''} mono time placeholder="A·····"
-                      onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
+                    <td>{tcs
+                      ? <Text disabled={!ed} value={t.ref_tcs ?? ''} mono time placeholder="A·····" onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} />
+                      : <span className="nowrap"><Text disabled={!ed} value={t.customer_ref ?? ''} mono placeholder={routeNow?.customer_ref ?? 'ref. zákazníka'} onSave={v => save(t, { customer_ref: v.trim() || null })} />
+                          {ed && !t.customer_ref && routeNow?.customer_ref && <button className="link small" title="Použít výchozí referenci z trasy" onClick={() => save(t, { customer_ref: routeNow.customer_ref })}>použít</button>}</span>}</td>
                     <td className="ro">{tripKind(t) === 'transport' && <span className="kindicon" title={KIND_LABEL.transport}>🚐 </span>}{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{tstops.map(s => ` → ${placeBy.get(s.place_id)?.name ?? '?'}`).join('')}{baseLabel(t.base_from, t.base_to) && <span className="nltag">{baseLabel(t.base_from, t.base_to)}</span>}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}</td>
                     <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}
                       {supplierSummary(t, personBy).map(x => <span key={x} className="suptag" title="Odchylka od standardu (SEMS, auto TCS)">{x}</span>)}
                       {canEdit && <button className="link small quiet suplink" title="Dodavatel posádky a auta u téhle cesty (SEMS je standard)" onClick={() => setSupFor(t)}>dodavatel</button>}</td>
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
-                    {TIMES.map((x, i) => (
-                      <td key={x.key} className="timecell">
-                        <Text disabled={!ed} value={fmtDT(t[x.key])} time placeholder="hh:mm"
+                    {TIMES.map((x, i) => transport && x.key === 'arr_pup' ? <td key={x.key} className="timecell ro quiet" title="U přepravy se nevyplňuje">—</td> : (
+                      <td key={x.key} className="timecell" title={transport ? TR_LABEL[x.key] : undefined}>
+                        <Text disabled={!ed} value={fmtDT(t[x.key])} time placeholder={transport && TR_LABEL[x.key] ? TR_LABEL[x.key]!.toLowerCase().slice(0, 8) : 'hh:mm'}
                           onSave={v => {
                             const base = i === 0 ? `${t.trip_date}T00:00:00` : prevFilled(t, i)
                             const r = parseDT(v, base, i > 0)
@@ -231,12 +238,12 @@ export default function Reports() {
                           }} />
                       </td>
                     ))}
-                    {(['km_pup', 'km_dop', 'km_total'] as const).map(k => (
+                    {(['km_pup', 'km_dop', 'km_total'] as const).map(k => transport && k !== 'km_total' ? <td key={k} className="ro quiet" title="U přepravy jen Km celkem">—</td> : (
                       <td key={k}><Text disabled={!ed} value={t[k]?.toString() ?? ''} time mono
                         onSave={v => { const n = num(v); if (n === undefined) return toast('Km pište jako celé číslo.', 'err'); save(t, { [k]: n === null ? null : Math.round(n) } as Partial<Trip>) }} /></td>
                     ))}
-                    <td><Text disabled={!ed} value={t.toll?.toString().replace('.', ',') ?? ''} time mono
-                      onSave={v => { const n = num(v); if (n === undefined) return toast('Mýto pište jako číslo, třeba 25,50.', 'err'); save(t, { toll: n }) }} /></td>
+                    {transport ? <td className="ro quiet" title="U přepravy se mýto neúčtuje">—</td> : <td><Text disabled={!ed} value={t.toll?.toString().replace('.', ',') ?? ''} time mono
+                      onSave={v => { const n = num(v); if (n === undefined) return toast('Mýto pište jako číslo, třeba 25,50.', 'err'); save(t, { toll: n }) }} /></td>}
                     <td className="ro num">{total ?? ''}</td>
                     <td className="ro num">{escort ?? ''}</td>
                     <td><Text disabled={!ed} value={t.hours_manual?.toString().replace('.', ',') ?? ''} time mono
@@ -255,15 +262,15 @@ export default function Reports() {
                           {variants.length > 1 && (
                             <select className="variantsel" disabled={!ed} value={route?.id ?? ''} title="Varianta trasy (přes Francii, přes Švýcarsko…). Platí pro cenu i pro Start a Home v Planningu."
                               onChange={e => save(t, { route_id: e.target.value || null })}>
-                              {variants.map(v => <option key={v.id} value={v.id}>{variantLabel(v.variant)}</option>)}
+                              {variants.map(v => <option key={v.id} value={v.id}>{variantLabel(v.variant)}{v.customer && v.customer !== t.customer ? ` (${v.customer})` : ''}</option>)}
                             </select>
                           )}
                           {t.price_manual != null
                             ? <span className="ro manualprice">ručně {ed && <button className="link small" onClick={() => save(t, { price_manual: null })} title="Zrušit ruční cenu a počítat znovu">zrušit</button>}</span>
                             : route
                             ? <select disabled={!ed} value={t.route_price_id ?? ''} onChange={e => save(t, { route_price_id: e.target.value || null })}>
-                                <option value="">sazby ({route.rate_h} €/h, {route.rate_km} €/km){routeIncomplete(route) ? ' – chybí PUP→DOP!' : ''}</option>
-                                {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {eur(Number(p.price))}</option>)}
+                                <option value="">sazby ({route.rate_h} {route.currency === 'CZK' ? 'Kč' : '€'}/h, {route.rate_km} {route.currency === 'CZK' ? 'Kč' : '€'}/km){routeIncomplete(route) ? ' – chybí PUP→DOP!' : ''}</option>
+                                {opts.map(p => <option key={p.id} value={p.id}>pevná {p.label}: {money(Number(p.price), p.currency)}{transport && (p.free_load_h != null || p.free_unload_h != null) ? ` (zdarma ${p.free_load_h ?? 0} h nakl., ${p.free_unload_h ?? 0} h vykl.)` : ''}</option>)}
                               </select>
                             : (() => {
                                 const sug = t.pup_id && t.dop_id ? suggestRoutes(t.pup_id, t.dop_id, t.base_from, t.base_to, routes, placeBy, tstops.map(s => s.place_id)) : []
@@ -282,9 +289,9 @@ export default function Reports() {
                               })()}
                         </td>
                         <td className="num" title={pr?.how}>
-                          <Text disabled={!ed} value={pr ? eur(pr.price) : ''} time mono placeholder={ed ? 'zadat' : ''}
+                          <Text disabled={!ed} value={pr ? money(pr.price, pr.currency) : ''} time mono placeholder={ed ? 'zadat' : ''}
                             onSave={v => {
-                              const n = num(v.replace('€', ''))
+                              const n = num(v.replace(/€|Kč/g, ''))
                               if (n === undefined) return toast('Cenu pište jako číslo, třeba 1250 nebo 1250,50.', 'err')
                               if (n === null) return save(t, { price_manual: null })
                               if (auto && Math.abs(n - auto.price) < 0.005 && t.price_manual == null) return

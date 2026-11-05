@@ -83,6 +83,8 @@ export interface Trip {
   guard1_supplier: string | null; guard2_supplier: string | null; guard3_supplier: string | null   // null = podle člověka
   car_supplier: string | null; supplier_km: number | null; supplier_toll: number | null             // auto od dodavatele
   report_done_at: string | null   // report uzavřený tlačítkem Hotovo
+  report_series: string | null    // řada čísel reportů (podle zákazníka: TCS, JTI-AGS, JTI-CZ, JTI-SK)
+  customer_ref: string | null     // reference zákazníka (JTi…), u opakujících se tras výchozí z trasy
 }
 // Tok: Finished v Planningu → cesta je v Reportech k dopsání → Hotovo (report_done_at) → z Planningu do Historie.
 export const reportDone = (t: Pick<Trip, 'status' | 'report_done_at'>) => t.status === 'Finished' && t.report_done_at != null
@@ -93,15 +95,18 @@ export function supplierOf(t: Pick<Trip, 'guard1_id' | 'guard2_id' | 'guard3_id'
   const slot = t.guard1_id === personId ? t.guard1_supplier : t.guard2_id === personId ? t.guard2_supplier : t.guard3_id === personId ? t.guard3_supplier : null
   return slot ?? personBy.get(personId)?.supplier ?? NO_SUPPLIER
 }
-export interface Customer { name: string; sort: number; active: boolean }
+export interface Customer { name: string; sort: number; active: boolean; report_series: string }
+// Zákazník, který nám dává A-referenci a číslo reportu z řady TCS (TCS NL, TCS DE); ostatní (JTi…) mají jen referenci zákazníka
+export const isTcsCustomer = (customer: string | null | undefined, customers: Customer[]) => customers.find(c => c.name === customer)?.report_series === 'TCS'
 export interface Route {
   id: string; pup_id: string; dop_id: string
   ho_pup_km: number | null; ho_pup_h: number | null; ho_pup_toll: number | null
   pup_dop_km: number | null; pup_dop_h: number | null; pup_dop_toll: number | null
   dop_ho_km: number | null; dop_ho_h: number | null; dop_ho_toll: number | null
   rate_h: number; rate_km: number; note: string | null; copied_from: string | null; base_from: string; base_to: string; variant: string; stops: string[]; updated_at: string
+  customer: string | null; currency: 'EUR' | 'CZK'; customer_ref: string | null
 }
-export interface RoutePrice { id: string; route_id: string; label: string; pup_dop_h: number | null; price: number; sort: number }
+export interface RoutePrice { id: string; route_id: string; label: string; pup_dop_h: number | null; price: number; sort: number; currency: 'EUR' | 'CZK'; free_load_h: number | null; free_unload_h: number | null }
 
 export type RouteTime = { id: string; pup_id: string; dop_id: string; ho_pup_h: number | null; dop_ho_h: number | null; base_from: string; base_to: string; variant: string; stops: string[] }
 export interface TripStop { id: string; trip_id: string; seq: number; place_id: string; arr: string | null; dep: string | null; km: number | null; note: string | null }
@@ -115,9 +120,14 @@ export function groupRoutes<R extends { pup_id: string; dop_id: string; base_fro
   for (const v of m.values()) v.sort((a, b) => a.variant.localeCompare(b.variant, 'cs'))
   return m
 }
-export function pickRoute<R extends { id: string; variant: string }>(t: Pick<Trip, 'route_id'>, variants: R[] | undefined): R | undefined {
+export function pickRoute<R extends { id: string; variant: string; customer?: string | null }>(t: Pick<Trip, 'route_id' | 'customer'>, variants: R[] | undefined): R | undefined {
   if (!variants?.length) return undefined
-  return (t.route_id && variants.find(r => r.id === t.route_id)) || variants.find(r => r.variant === '') || variants[0]
+  const chosen = t.route_id && variants.find(r => r.id === t.route_id)
+  if (chosen) return chosen
+  // stejná trasa může mít ceník pro víc zákazníků: přednost má trasa zákazníka cesty
+  const mine = variants.filter(r => !r.customer || r.customer === t.customer)
+  const pool = mine.length ? mine : variants
+  return pool.find(r => r.variant === '') || pool[0]
 }
 export const variantLabel = (v: string) => v || 'základní'
 // Druh cesty: doprovod (standard) nebo přeprava dodávkou; když není zadán, JTi* = přeprava, ostatní doprovod

@@ -7,7 +7,7 @@ import { dateLabel, docState, fmtDT, fmtRel, hm, inkOn, parseDT, todayIso } from
 import { BaseSelect } from '../lib/BaseSelect'
 import { baseLabel } from '../lib/supabase'
 import { buildRouteIndex, dopHoHours, hoPupHours, plannedHomeIso, plannedStartIso, requestIso, routeVariants } from '../lib/planned'
-import { KIND_LABEL, jobEnd, loadStops, pickRoute, stopsOf, tripKind, type StopsMap, type TripStop } from '../lib/supabase'
+import { KIND_LABEL, isTcsCustomer, jobEnd, loadStops, pickRoute, stopsOf, tripKind, type StopsMap, type TripStop } from '../lib/supabase'
 import { TripDialog, emptyForm, formFromTrip, type TripForm } from './TripDialog'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
@@ -153,7 +153,7 @@ export default function Plan() {
         trip_date: f.trip_date, trip_time: tm, pup_id: pup, dop_id: dop,
         guard1_id: person(f.guard1), guard2_id: person(f.guard2), guard3_id: person(f.guard3), car_id: carId,
         car_origin: f.car_origin || null, car_origin_other: f.car_origin === 'Jiné' ? f.car_origin_other.trim() || null : null,
-        customer: f.customer || null, status: f.status || null, ref_tcs: f.ref_tcs.trim() || null,
+        customer: f.customer || null, status: f.status || null, ref_tcs: f.ref_tcs.trim() || null, customer_ref: f.customer_ref.trim() || null,
         base_from: f.base_from, base_to: f.base_to, takeover: f.takeover, remarks: f.remarks.trim() || null,
         kind: (f.kind || null) as Trip['kind'],
       }
@@ -242,7 +242,7 @@ export default function Plan() {
         const hay = [
           placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, ...stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name),
           ...GUARDS.map(g => personBy.get(t[g] ?? '')?.short_name),
-          carBy.get(t.car_id ?? '')?.label, t.ref_tcs, t.remarks,
+          carBy.get(t.car_id ?? '')?.label, t.ref_tcs, t.customer_ref, t.remarks,
         ].join(' ').toLowerCase()
         return hay.includes(s)
       })
@@ -277,9 +277,9 @@ export default function Plan() {
   const fleet = cars.filter(c => inPlanning(c, carCategories))
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Status', 'Ref. TCS', 'Zákazník', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Guard 1', 'Guard 2', 'Guard 3', 'Auto', 'Auto z', 'Výjezd z', 'Návrat do', 'Take-over', 'Start', 'Konec Dop', 'Home', 'Poznámka', 'Změna']
+    const head: Cell[] = ['Datum', 'Čas', 'Status', 'Ref. TCS', 'Ref. zákazníka', 'Zákazník', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Guard 1', 'Guard 2', 'Guard 3', 'Auto', 'Auto z', 'Výjezd z', 'Návrat do', 'Take-over', 'Start', 'Konec Dop', 'Home', 'Poznámka', 'Změna']
     const rows: Cell[][] = visible.map(t => [
-      t.trip_date.split('-').reverse().join('.'), hm(t.trip_time), t.status, t.ref_tcs, t.customer, KIND_LABEL[tripKind(t)],
+      t.trip_date.split('-').reverse().join('.'), hm(t.trip_time), t.status, t.ref_tcs, t.customer_ref, t.customer, KIND_LABEL[tripKind(t)],
       placeBy.get(t.pup_id ?? '')?.name, placeBy.get(t.dop_id ?? '')?.name, stopsOf(t, stops).map(s => placeBy.get(s.place_id)?.name).join(', '),
       ...GUARDS.map(g => personBy.get(t[g] ?? '')?.short_name), carBy.get(t.car_id ?? '')?.label,
       t.car_origin === 'Jiné' ? t.car_origin_other : t.car_origin, t.base_from, t.base_to, t.takeover ? 'ano' : '',
@@ -501,8 +501,9 @@ export default function Plan() {
                         <Text disabled={!canCrew} value={t.car_origin_other ?? ''} placeholder="kde" onSave={v => save(t, { car_origin_other: v || null })} />
                       )}
                     </td>
-                    <td><Text disabled={!canStatus} value={t.ref_tcs ?? ''} placeholder="A·····" mono
-                      onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} /></td>
+                    <td>{isTcsCustomer(t.customer, customers)
+                      ? <Text disabled={!canStatus} value={t.ref_tcs ?? ''} placeholder="A·····" mono onSave={v => save(t, { ref_tcs: v.trim().toUpperCase() || null })} />
+                      : <span title="Reference zákazníka (JTi…); A-referenci dává jen TCS NL / DE"><Text disabled={!canStatus} value={t.customer_ref ?? ''} placeholder="ref. zák." mono onSave={v => save(t, { customer_ref: v.trim() || null })} /></span>}</td>
                     <td className="basecell" title="Základna: výjezd → návrat. Výchozí CZ → CZ.">
                       <BaseSelect value={t.base_from} disabled={!canRoute} onChange={v => save(t, { base_from: v })} />→<BaseSelect value={t.base_to} disabled={!canRoute} onChange={v => save(t, { base_to: v })} />
                     </td>
