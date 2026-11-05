@@ -1,64 +1,8 @@
-import { supabase, type Car, type Person, type Place } from '../lib/supabase'
+import { supabase, type Car, type Place } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
-import { docState, intervalToMinutes, minutesToHM, parseDuration } from '../lib/format'
+import { intervalToMinutes, minutesToHM, parseDuration } from '../lib/format'
 import ListTable, { type Col } from './ListTable'
 import { Text } from './Plan'
-
-type PersonRow = Person & { id_number: string; id_valid_to: string; passport_number: string; passport_valid_to: string }
-
-export function People() {
-  const { people, docs, level, toast, reloadLists } = useApp()
-  const canEdit = level('people') === 'write'
-  const seeDocs = level('people_docs') !== 'none'
-  const editDocs = level('people_docs') === 'write'
-
-  const rows: PersonRow[] = people.map(p => {
-    const d = docs.get(p.id)
-    return { ...p, id_number: d?.id_number ?? '', id_valid_to: d?.id_valid_to ?? '', passport_number: d?.passport_number ?? '', passport_valid_to: d?.passport_valid_to ?? '' }
-  })
-
-  async function savePerson(p: Person, patch: Partial<Person>) {
-    const { error } = await supabase.from('people').update(patch).eq('id', p.id)
-    if (error) toast(explain(error), 'err'); else reloadLists()
-  }
-  async function saveDoc(p: Person, field: string, value: string) {
-    const { error } = await supabase.from('person_docs').upsert({ person_id: p.id, [field]: value || null })
-    if (error) toast(explain(error), 'err'); else reloadLists()
-  }
-  async function add() {
-    const first = window.prompt('Jméno nového člověka')?.trim()
-    if (!first) return
-    const last = window.prompt('Příjmení')?.trim()
-    if (!last) return
-    const { error } = await supabase.from('people').insert({ first_name: first, last_name: last })
-    if (error) toast(explain(error), 'err'); else { toast(`${first} ${last} přidán. V Planningu je hned v nabídce.`); reloadLists() }
-  }
-
-  const cols: Col<PersonRow>[] = [
-    { key: 'first', label: 'Jméno', get: r => r.first_name, save: (r, v) => v && savePerson(r, { first_name: v }) },
-    { key: 'last', label: 'Příjmení', get: r => r.last_name, save: (r, v) => v && savePerson(r, { last_name: v }) },
-    { key: 'short', label: 'V rozpisu', get: r => r.short_name },
-    { key: 'phone', label: 'Telefon', get: r => r.phone ?? '', save: (r, v) => savePerson(r, { phone: v || null }), mono: true },
-    { key: 'birth', label: 'Narozen', type: 'date', get: r => r.birth_date ?? '', save: (r, v) => savePerson(r, { birth_date: v || null }) },
-    { key: 'nat', label: 'Národnost', get: r => r.nationality ?? '', save: (r, v) => savePerson(r, { nationality: v || null }) },
-  ]
-  if (seeDocs) {
-    const ds = editDocs ? (f: string) => (r: PersonRow, v: string) => saveDoc(r, f, v) : () => undefined
-    cols.push(
-      { key: 'op', label: 'Číslo OP', get: r => r.id_number, save: editDocs ? ds('id_number') : undefined, mono: true },
-      { key: 'opd', label: 'OP platný do', type: 'date', get: r => r.id_valid_to, save: editDocs ? ds('id_valid_to') : undefined, mark: r => docState(r.id_valid_to || null) },
-      { key: 'pas', label: 'Číslo pasu', get: r => r.passport_number, save: editDocs ? ds('passport_number') : undefined, mono: true },
-      { key: 'pasd', label: 'Pas platný do', type: 'date', get: r => r.passport_valid_to, save: editDocs ? ds('passport_valid_to') : undefined, mark: r => docState(r.passport_valid_to || null) },
-    )
-  }
-  cols.push({ key: 'active', label: 'Aktivní', type: 'check', get: r => String(r.active), save: (r, v) => savePerson(r, { active: v === 'true' }) })
-
-  return (
-    <ListTable title="Lidé" rows={rows} cols={cols} canEdit={canEdit} onAdd={add} addLabel="Přidat člověka"
-      search={r => `${r.first_name} ${r.last_name} ${r.phone ?? ''} ${r.nationality ?? ''}`}
-      intro={<>Neaktivní lidé zmizí z nabídky v Planningu, ale zůstanou u starých cest. {seeDocs && 'Doklad je červeně po platnosti a oranžově 90 dní před koncem.'}</>} />
-  )
-}
 
 export function Places() {
   const { places, level, toast, reloadLists } = useApp()

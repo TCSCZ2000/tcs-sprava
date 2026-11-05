@@ -13,12 +13,32 @@ export type Role = 'admin' | 'viewer' | 'custom' | 'dispatcher'
 
 export interface Profile { id: string; email: string; full_name: string; role: Role; active: boolean }
 export interface Person {
-  id: string; first_name: string; last_name: string; short_name: string; phone: string | null
-  birth_date: string | null; nationality: string | null; active: boolean; note: string | null
+  id: string; first_name: string; last_name: string; short_name: string; short_name_auto: boolean; tag: string; phone: string | null
+  email: string | null; birth_date: string | null; nationality: string | null; active: boolean; note: string | null
 }
+// Doklad člověka: jeden řádek na doklad (OP, pas, ŘP, …), soubor v bucketu people-files; status 'navrzeno' = typ/číslo/platnost navrhl Claude
+export interface PersonDoc {
+  id: string; person_id: string; kind: string; name: string | null; number: string | null; valid_to: string | null
+  path: string | null; file_name: string | null; mime: string | null; size: number | null; source: string | null; source_ref: string | null
+  status: 'navrzeno' | 'potvrzeno' | null; note: string | null; uploaded_at: string
+}
+export interface DocKind { key: string; label: string; sort: number; expires: boolean; numbered: boolean }
+// Souhrn OP a pasu pro Planning a Podklad (nejdelší platnost z potvrzených, jinak jakýkoli)
 export interface PersonDocs {
   person_id: string; id_number: string | null; id_valid_to: string | null
   passport_number: string | null; passport_valid_to: string | null
+}
+export function summarizeDocs(docs: PersonDoc[]): Map<string, PersonDocs> {
+  const m = new Map<string, PersonDocs>()
+  const better = (a: PersonDoc | undefined, b: PersonDoc) => !a || ((b.status === 'potvrzeno' ? 1 : 0) - (a.status === 'potvrzeno' ? 1 : 0) || (b.valid_to ?? '').localeCompare(a.valid_to ?? '')) > 0
+  const best = new Map<string, PersonDoc>()
+  for (const d of docs) if (d.kind === 'op' || d.kind === 'pas') { const k = d.person_id + d.kind; if (better(best.get(k), d)) best.set(k, d) }
+  for (const d of best.values()) {
+    const cur = m.get(d.person_id) ?? { person_id: d.person_id, id_number: null, id_valid_to: null, passport_number: null, passport_valid_to: null }
+    if (d.kind === 'op') { cur.id_number = d.number; cur.id_valid_to = d.valid_to } else { cur.passport_number = d.number; cur.passport_valid_to = d.valid_to }
+    m.set(d.person_id, cur)
+  }
+  return m
 }
 export interface Car {
   id: string; plate: string | null; model: string | null; color: string | null; car_no: string | null

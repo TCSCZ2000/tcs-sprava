@@ -21,6 +21,10 @@ export default function ListTable<T extends { id: string }>(props: {
   onAdd?: () => void
   addLabel?: string
   search: (row: T) => string
+  lead?: (row: T) => ReactNode       // první sloupec, třeba tlačítko ⋯ s detailem
+  tools?: ReactNode                   // další tlačítka v liště (Excel, tisk…)
+  filters?: ReactNode                 // řádek pod lištou (přepínače)
+  rowClass?: (row: T) => string | undefined
 }) {
   const [q, setQ] = useState('')
   const rows = useMemo(() => {
@@ -35,14 +39,17 @@ export default function ListTable<T extends { id: string }>(props: {
         <span className="count">{props.rows.length}</span>
         <input className="search" placeholder="Hledat…" value={q} onChange={e => setQ(e.target.value)} />
         {props.canEdit && props.onAdd && <button className="primary" onClick={props.onAdd}>{props.addLabel ?? 'Přidat'}</button>}
+        {props.tools}
       </div>
       <p className="intro">{props.intro}</p>
+      {props.filters}
       <div className="tablewrap">
         <table className="grid plain">
-          <thead><tr>{props.cols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+          <thead><tr>{props.lead && <th className="leadcol" />}{props.cols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
           <tbody>
             {rows.map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} className={props.rowClass?.(r)}>
+                {props.lead && <td className="leadcol">{props.lead(r)}</td>}
                 {props.cols.map(c => {
                   const m = c.mark?.(r)
                   const editable = props.canEdit && !!c.save

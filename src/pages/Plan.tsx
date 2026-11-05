@@ -343,7 +343,7 @@ export default function Plan() {
       </div>
 
       <datalist id="dl-status">{allStatuses.map(x => <option key={x.name} value={x.name} />)}</datalist>
-      <datalist id="dl-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name} />)}</datalist>
+      <datalist id="dl-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name}>{p.first_name} {p.last_name}{p.phone ? ' · ' + p.phone : ''}</option>)}</datalist>
       <datalist id="dl-places">{places.map(p => <option key={p.id} value={p.name} />)}</datalist>
       <datalist id="dl-cars">{fleet.map(c => <option key={c.id} value={c.label} />)}</datalist>
 

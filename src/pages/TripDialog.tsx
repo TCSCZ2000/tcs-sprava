@@ -36,7 +36,7 @@ export function TripDialog({ title, initial, onSave, onClose, saving, can }: {
       <div className="dialog" role="dialog" aria-label={title}>
         <div className="dialoghead"><h2>{title}</h2><button className="ghost" aria-label="Zavřít" onClick={onClose}>×</button></div>
         <datalist id="dlg-places">{places.map(p => <option key={p.id} value={p.name} />)}</datalist>
-        <datalist id="dlg-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name} />)}</datalist>
+        <datalist id="dlg-people">{people.filter(p => p.active).map(p => <option key={p.id} value={p.short_name}>{p.first_name} {p.last_name}{p.phone ? ' · ' + p.phone : ''}</option>)}</datalist>
         <datalist id="dlg-cars">{cars.map(c => <option key={c.id} value={c.label} />)}</datalist>
 
         <div className="formgrid">

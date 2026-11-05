@@ -5,6 +5,7 @@ import { carAlerts, kmLeft, OWN_STATES, RENTAL_STATES, STATES } from '../lib/car
 import { todayIso } from '../lib/format'
 import { STAGE_LABEL, serviceStatus, type CarKm, type CarService, type ServiceGroup, type WorkKind } from '../lib/service'
 import { CarDialog } from './CarDialog'
+import { exportXlsx, printPdf } from '../lib/export'
 import { Text } from './Plan'
 
 const KIND: Record<string, string> = { own: 'naše auto', rental: 'půjčovna', driver: 'osobní auto řidiče' }
@@ -128,6 +129,12 @@ export default function Cars() {
         <span className="count">{rows.length} z {cars.length}</span>
         <input className="search" placeholder="Hledat SPZ, model, GPS…" value={q} onChange={e => setQ(e.target.value)} />
         {canEdit && <button className="primary" onClick={add}>Přidat naše auto</button>}
+        <button className="link" onClick={() => {
+          const head = ['SPZ', 'Číslo', 'Model', 'Barva', 'Kategorie', 'Stav', 'Km', 'Další servis', 'STK do', 'Známka CZ do', 'GPS', 'LOC', 'Pojišťovna', 'Rok', 'VIN', 'Poznámka']
+          const body = rows.map(c => { const st = statusOf(c); return [c.plate ?? '', c.car_no ?? '', c.model ?? '', c.color ?? '', c.car_category ?? '', c.state ?? '', st.kmMax ?? '', st.nextKm ?? '', c.stk_until ?? '', c.vignette_until ?? '', c.gps ?? '', c.loc ?? '', c.insurer ?? '', c.year ?? '', c.vin ?? '', c.note ?? ''] })
+          exportXlsx(`Auta_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: 'Auta', rows: [head, ...body], widths: [9, 6, 18, 8, 12, 10, 9, 11, 11, 12, 10, 8, 12, 6, 19, 30] }])
+        }}>Excel</button>
+        <button className="link" onClick={printPdf}>Tisk / PDF</button>
         {canEdit && (
           <select className="orderrental" value="" onChange={e => { if (e.target.value) orderRental(e.target.value) }} aria-label="Objednat auto z půjčovny">
             <option value="">Objednat auto z půjčovny…</option>

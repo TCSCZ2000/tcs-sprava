@@ -403,3 +403,20 @@ table.sub2 .cell { min-width: 5rem; }
 .pinshow { font-family: 'Barlow Semi Condensed', monospace; font-size: 1.3rem; letter-spacing: .15em; color: #b42318; }
 .pintag { margin-left: .5rem; color: #1a7f37; font-weight: 600; font-size: .85rem; }
 .cardialog .formgrid label input[type=date] { max-width: 11rem; }
+
+/* Lidé: detail, doklady, import */
+th.leadcol, td.leadcol { width: 1.6rem; padding: 0 .1rem; }
+tr.inactive td { color: var(--ink-2); }
+tr.inactive td .cell:disabled, tr.inactive td .ro { color: var(--ink-2); }
+.inlinerow { display: flex; gap: .5rem; align-items: center; }
+.inlinerow input[type=text] { flex: 1; }
+.inlinerow .check { white-space: nowrap; margin: 0; }
+.docs tr.proposed td { background: #fffbea; }
+.docs td input[type=date] { width: 8.4rem; }
+.overlay.lightbox { background: rgba(10,16,20,.85); flex-direction: column; justify-content: center; align-items: center; cursor: zoom-out; }
+.overlay.lightbox img { max-width: 92vw; max-height: 84vh; object-fit: contain; box-shadow: 0 10px 40px rgba(0,0,0,.5); background: #fff; }
+.lbbar { color: #fff; display: flex; gap: 1rem; align-items: center; margin-top: .6rem; }
+.lbbar a { color: #ffd98a; }
+.lbbar .ghost { color: #fff; font-size: 1.3rem; }
+.importlog { font-family: ui-monospace, monospace; font-size: .8rem; max-height: 30vh; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem; margin-top: .75rem; }
+.importlog .err { color: var(--clash); }
