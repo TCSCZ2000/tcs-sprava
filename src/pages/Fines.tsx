@@ -19,7 +19,7 @@ export interface Fine {
 }
 export interface FineFile { id: string; fine_id: string | null; batch_id: string | null; kind: 'sken' | 'pokuta' | 'platba' | 'nahlaseni' | 'jine'; path: string; file_name: string | null; mime: string | null; size: number | null; pages: string | null; parsed: unknown; parse_note: string | null; uploaded_at: string }
 export type FineStatus = 'nova' | 'predano' | 'zaplaceno' | 'ridic_nahlasen' | 'odvolani' | 'uzavreno' | 'neni_pokuta'
-export const STATUS_LABEL: Record<FineStatus, string> = { nova: 'nová', predano: 'předáno SEMS', zaplaceno: 'zaplaceno', ridic_nahlasen: 'řidič nahlášen', odvolani: 'odvolání', uzavreno: 'uzavřeno', neni_pokuta: 'není pokuta' }
+export const STATUS_LABEL: Record<FineStatus, string> = { nova: 'nová', predano: 'řeší SEMS', zaplaceno: 'zaplaceno', ridic_nahlasen: 'řidič nahlášen', odvolani: 'odvolání', uzavreno: 'uzavřeno', neni_pokuta: 'není pokuta' }
 const OPEN: FineStatus[] = ['nova', 'predano', 'odvolani']
 const CHANNEL: Record<string, string> = { posta: 'pošta', datovka: 'datovka', jine: 'jiné' }
 const PHASE: Record<string, string> = { doprovod: 'během doprovodu', presun: 'při přesunu', mimo: 'mimo cestu' }
@@ -100,7 +100,7 @@ export default function Fines() {
         <button className="ghostbtn" onClick={excel}>Excel</button>
         <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
       </div>
-      <p className="intro">Obálky prožeňte skenerem do jednoho PDF (nebo stáhněte PDF z datovky) a založte dávku s datem převzetí. Aplikace sken rozdělí na jednotlivé pokuty, přečte je a spáruje s autem, cestou a posádkou (údaje jsou „navržené“, potvrďte je v detailu). SEMS pak nahraje potvrzení o platbě nebo o nahlášení řidiče; aplikace je porovná s pokutou a lhůtou. Dávka slouží jako kontrola, že nic nezapadlo.</p>
+      <p className="intro">Obálky prožeňte skenerem do jednoho PDF (nebo stáhněte PDF z datovky) a založte dávku s datem převzetí. Aplikace sken rozdělí na jednotlivé pokuty, přečte je, roztřídí podle země a spáruje s autem, cestou a posádkou (údaje jsou „navržené“, potvrďte je v detailu). SEMS je vidí rovnou tady a nahraje potvrzení o platbě nebo o nahlášení řidiče; aplikace je porovná s pokutou a lhůtou. Dávka slouží jako kontrola, že nic nezapadlo.</p>
 
       {batches.length > 0 && (
         <div className="batches">
@@ -111,7 +111,7 @@ export default function Fines() {
             const np = unparsed(b.id)
             return (
               <button key={b.id} className={'batchcard' + (batchFilter === b.id ? ' on' : '')} onClick={() => setBatchFilter(batchFilter === b.id ? '' : b.id)}>
-                <strong>{dmyOf(b.received_on)}</strong> <span className="quiet">{CHANNEL[b.channel]}{b.handed_on ? ` · předáno ${b.handed_to ?? ''} ${dmyOf(b.handed_on)}` : ''}</span><br />
+                <strong>{dmyOf(b.received_on)}</strong> <span className="quiet">{CHANNEL[b.channel]}</span><br />
                 {bf.length ? <>{[...byC].map(([c, n]) => `${n}× ${c}`).join(', ')} · <span className={open ? 'missingtxt' : 'quiet'}>{open ? `${open} otevřených` : 'vše vyřízeno'}</span></> : <span className="quiet">zatím žádné pokuty</span>}
                 {np > 0 && canEdit && <> · <span className="link" onClick={e => { e.stopPropagation(); parseBatch(b.id) }}>{busy === b.id ? 'čtu…' : `přečíst ${np} ${np === 1 ? 'sken' : 'skeny'}`}</span></>}
               </button>
@@ -163,7 +163,7 @@ export default function Fines() {
 // ---------- Nová dávka ----------
 function BatchDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { toast } = useApp()
-  const [f, setF] = useState({ received_on: todayIso(), channel: 'posta', handed_to: 'SEMS', handed_on: todayIso(), note: '' })
+  const [f, setF] = useState({ received_on: todayIso(), channel: 'posta', note: '' })
   const [list, setList] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -173,7 +173,7 @@ function BatchDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (
   async function create() {
     if (!list.length) return toast('Přidejte aspoň jeden sken nebo PDF.', 'err')
     setBusy(true)
-    const { data, error } = await supabase.from('fine_batches').insert({ received_on: f.received_on, channel: f.channel, handed_to: f.handed_to || null, handed_on: f.handed_on || null, note: f.note.trim() || null }).select('id').single()
+    const { data, error } = await supabase.from('fine_batches').insert({ received_on: f.received_on, channel: f.channel, handed_to: null, handed_on: null, note: f.note.trim() || null }).select('id').single()
     if (error || !data) { setBusy(false); return toast(explain(error), 'err') }
     for (const file of list) {
       const safe = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '_')
@@ -191,9 +191,7 @@ function BatchDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (
         <div className="formgrid">
           <label>Převzato<input type="date" value={f.received_on} onChange={e => setF({ ...f, received_on: e.target.value })} /></label>
           <label>Došlo<select value={f.channel} onChange={e => setF({ ...f, channel: e.target.value })}><option value="posta">pošta</option><option value="datovka">datovka</option><option value="jine">jiné</option></select></label>
-          <label>Předáno komu<input type="text" value={f.handed_to} onChange={e => setF({ ...f, handed_to: e.target.value })} /></label>
-          <label>Předáno kdy<input type="date" value={f.handed_on} onChange={e => setF({ ...f, handed_on: e.target.value })} /></label>
-          <label className="span4">Poznámka<input type="text" value={f.note} onChange={e => setF({ ...f, note: e.target.value })} placeholder="třeba: 8× DE, 1× F, 3× BE" /></label>
+          <label className="span2">Poznámka<input type="text" value={f.note} onChange={e => setF({ ...f, note: e.target.value })} placeholder="třeba: 8× DE, 1× F, 3× BE" /></label>
           <label className="span4">Skeny / PDF<input type="file" multiple accept="application/pdf,image/*" onChange={e => setList(Array.from(e.target.files ?? []))} />
             <span className="quiet small">Jeden vícestránkový PDF z průjezdového skeneru stačí; aplikace ho rozdělí. Z datovky nahrajte stažené přílohy. Do 50 MB na soubor.</span></label>
         </div>
@@ -269,7 +267,7 @@ function FineDialog({ fine: f, files, batch, canEdit, save, reload, onClose }: {
           <h2>{f.country ?? '?'} · {f.authority ?? 'pokuta'} · {f.case_no ?? ''} {f.parse_status === 'navrzeno' && <span className="badge soon">navrženo – zkontrolujte</span>}</h2>
           <button className="ghost" aria-label="Zavřít" onClick={onClose}>×</button>
         </div>
-        <p className="quiet small">{batch ? `Převzato ${dmyOf(batch.received_on)} (${CHANNEL[batch.channel]})${batch.handed_on ? `, předáno ${batch.handed_to ?? ''} ${dmyOf(batch.handed_on)}` : ''}` : 'Bez dávky'} · založeno {fmtDT(f.created_at)}</p>
+        <p className="quiet small">{batch ? `Převzato ${dmyOf(batch.received_on)} (${CHANNEL[batch.channel]})` : 'Bez dávky'} · založeno {fmtDT(f.created_at)}</p>
         <div className="formgrid">
           <label>Stav<select value={f.status} disabled={!canEdit} onChange={e => save({ status: e.target.value as FineStatus })}>{(Object.keys(STATUS_LABEL) as FineStatus[]).map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}</select></label>
           <label title="Během doprovodu rozhodnete vy; při přesunu jde za SEMS">K tíži<select value={f.liability ?? ''} disabled={!canEdit} onChange={e => save({ liability: (e.target.value || null) as Fine['liability'] })}><option value="">nerozhodnuto</option><option value="TCS">TCS (výkon doprovodu)</option><option value="SEMS">SEMS (nedbalost řidiče)</option></select></label>
