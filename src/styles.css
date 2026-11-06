@@ -438,6 +438,12 @@ tr.canceledrow td.ro:first-of-type { text-decoration: none; }
 
 /* Reporty: hustá mřížka */
 .reports.dense .grid { font-size: .82rem; }
+.reports.dense.size-m .grid { font-size: .9rem; }
+.reports.dense.size-m .grid td { height: 30px; }
+.reports.dense.size-xs .grid { font-size: 11.5px; }
+.reports.dense.size-xs .grid td { height: 22px; }
+.reports.dense.size-xs .cell { padding: .05rem .2rem; }
+.reports.dense.size-xs .timecell .cell { min-width: 4.8rem; width: 5.2rem; font-size: 11px; }
 .reports.dense .grid td, .reports.dense .grid th { border-right: 1px solid #e3e8e6; padding: 0 .2rem; }
 .reports.dense .grid td { height: 26px; border-bottom: 1px solid #e3e8e6; }
 .reports.dense .grid th { padding: .3rem .25rem; font-size: .74rem; }
@@ -447,7 +453,6 @@ tr.canceledrow td.ro:first-of-type { text-decoration: none; }
 .reports.dense td.ro { padding: 0 .3rem; }
 .reports.dense td.num { text-align: right; white-space: nowrap; }
 .reports.dense .grid tr.trip td:nth-child(6) { min-width: 15rem; max-width: 22rem; white-space: normal; line-height: 1.15; }
-.reports.dense .grid tr.trip td:nth-child(7) { max-width: 16rem; white-space: normal; line-height: 1.15; }
 .reports.dense .suptag { font-size: .68rem; }
 .attachments { margin-top: 1.5rem; }
 .attach { margin: .75rem 0 1.25rem; }

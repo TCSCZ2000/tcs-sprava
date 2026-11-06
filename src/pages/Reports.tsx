@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase, reportDone, type Route, type RoutePrice, type RouteTime, type Trip } from '../lib/supabase'
 import { buildRouteIndex, plannedHomeIso, plannedStartIso } from '../lib/planned'
 import { KIND_LABEL, baseLabel, groupRoutes, isTcsCustomer, tripKind, jobEnd, loadStops, pickRoute, stopsOf, tripRouteKey, variantLabel, type StopsMap, type TripStop } from '../lib/supabase'
@@ -7,7 +8,7 @@ import { explain, useApp } from '../lib/data'
 import { fmtDT, fmtRel, parseDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, type Link } from '../lib/hours'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
-import { Text } from './Plan'
+import { Text, usePref } from './Plan'
 import { SupplierDialog, supplierSummary } from './SupplierDialog'
 import { RouteSaveDialog } from './RouteSaveDialog'
 import { ReportDialog } from './ReportDialog'
@@ -48,6 +49,8 @@ export default function Reports() {
   const [loaded, setLoaded] = useState(false)
   const [supFor, setSupFor] = useState<Trip | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [size, setSize] = usePref<'m' | 's' | 'xs'>('reports.size', 's')
+  const [showAttach, setShowAttach] = useState(false)
   const [routeFor, setRouteFor] = useState<{ trip: Trip; similar?: { route: Route; why: string }; composed?: { ho: LegPick | null; dh: LegPick | null; mid: MidPick | null } } | null>(null)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
@@ -247,7 +250,7 @@ export default function Reports() {
   const COLS = seePrice ? 30 : 25
 
   return (
-    <section className="plan reports size-s dense">
+    <section className={'plan reports dense size-' + size}>
       <div className="toolbar">
         <h1>Reporty</h1>
         <span className="count">{waiting} k dopsání{canceledOpen ? ` · ${canceledOpen} zrušených k rozhodnutí` : ''}</span>
@@ -262,8 +265,13 @@ export default function Reports() {
         <label className="check"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />I hotové za</label>
         <input type="month" value={doneMonth} onChange={e => e.target.value && setDoneMonth(e.target.value)} disabled={!showDone} className="search" style={{ minWidth: 'auto', flex: '0 0 auto' }} />
         <span className="grow" />
+        <div className="seg" role="group" aria-label="Velikost písma">
+          <button className={'fs-m' + (size === 'm' ? ' on' : '')} aria-pressed={size === 'm'} onClick={() => setSize('m')} title="Normální písmo">A</button>
+          <button className={'fs-s' + (size === 's' ? ' on' : '')} aria-pressed={size === 's'} onClick={() => setSize('s')} title="Menší písmo">A</button>
+          <button className={'fs-xs' + (size === 'xs' ? ' on' : '')} aria-pressed={size === 'xs'} onClick={() => setSize('xs')} title="Nejmenší písmo">A</button>
+        </div>
         <button className="ghostbtn" onClick={excel}>Excel</button>
-        {attachments.length > 0 && <button className="ghostbtn" title="Přílohy k fakturám TCS NL a TCS DE za zvolený měsíc, rozdělené po max. 21 000 €" onClick={excelAttachments}>Přílohy k faktuře</button>}
+        {attachments.length > 0 && <button className="ghostbtn" title="Přílohy k fakturám TCS NL a TCS DE za zvolený měsíc, rozdělené po max. 21 000 €" onClick={() => setShowAttach(true)}>Přílohy k faktuře</button>}
         <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
       </div>
 
@@ -441,32 +449,7 @@ export default function Reports() {
           <p className="empty">Žádný report k dopsání. Cesta se sem dostane, když jí v Planningu dáte status Report.</p>
         )}
       </div>
-      {attachments.length > 0 && (
-        <div className="attachments">
-          <h2 className="subhead">Přílohy k faktuře za {doneMonth} <span className="quiet small">· hotové reporty v pořadí čísel, po max. 21 000 € · <button className="link small" onClick={excelAttachments}>Excel</button></span></h2>
-          {attachments.map(a => a.parts.map((part, i) => {
-            const sum = (k: 'hrs' | 'car' | 'toll') => Math.round(part.rows.reduce((x, r) => x + (r.pr?.[k] ?? 0), 0) * 100) / 100
-            return (
-              <div key={a.customer + i} className="attach">
-                <h3>{a.customer} · příloha {i + 1} <span className="quiet small">{part.rows.length} reportů · {money(part.sum, 'EUR')}</span></h3>
-                <table className="grid plain sub2 attachgrid">
-                  <thead><tr><th>Date</th><th>#Report</th><th>Ref#</th><th>Route</th><th className="num">HRS Price</th><th className="num">Car Price</th><th className="num">Toll Price</th><th className="num">Price</th></tr></thead>
-                  <tbody>
-                    {part.rows.map(({ t, pr }) => (
-                      <tr key={t.id} className={pr ? undefined : 'missingrow'}>
-                        <td>{dm(t.trip_date)}</td><td>{t.report_no}</td><td className="mono">{t.ref_tcs}</td>
-                        <td>{placeBy.get(t.pup_id ?? '')?.name ?? '?'}-{placeBy.get(t.dop_id ?? '')?.name ?? '?'}{stopsOf(t, stops).map(s => '-' + (placeBy.get(s.place_id)?.name ?? '?')).join('')}{t.takeover ? ' (Take-Over)' : ''}{t.status === 'Canceled' ? ' (canceled)' : ''}</td>
-                        <td className="num">{pr ? pr.hrs.toLocaleString('cs-CZ') : <span className="missingtxt">bez ceny</span>}</td><td className="num">{pr?.car.toLocaleString('cs-CZ')}</td><td className="num">{pr?.toll.toLocaleString('cs-CZ')}</td><td className="num"><strong>{pr?.price.toLocaleString('cs-CZ')}</strong></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot><tr><td colSpan={4}><strong>Celkem</strong></td><td className="num">{sum('hrs').toLocaleString('cs-CZ')}</td><td className="num">{sum('car').toLocaleString('cs-CZ')}</td><td className="num">{sum('toll').toLocaleString('cs-CZ')}</td><td className="num"><strong>{part.sum.toLocaleString('cs-CZ')}</strong></td></tr></tfoot>
-                </table>
-              </div>
-            )
-          }))}
-        </div>
-      )}
+      {showAttach && <AttachmentsDialog attachments={attachments} month={doneMonth} placeName={id => placeBy.get(id ?? '')?.name ?? '?'} stops={stops} onExcel={excelAttachments} onClose={() => setShowAttach(false)} />}
       {openId && (() => {
         const t = trips.find(x => x.id === openId); if (!t) return null
         const tstops = stopsOf(t, stops); const end = jobEnd(t, stops)
@@ -529,4 +512,48 @@ function combiCell(t: Trip, links: Link[], ed: boolean, set: (v: boolean | null)
   if (overlap) return <span className="combi-auto" title={who + '\nPřekryv se pro hodiny zkrátí vždy.'}>překryv</span>
   if (!links.length) return ed && t.dep_home ? <button className="link small quiet" title="Posádka pokračovala z předchozí cesty (mezera přes 6 h)" onClick={() => set(true)}>navazuje?</button> : null
   return ed ? <button className="link small quiet" title={who} onClick={() => set(true)}>navazuje?</button> : <span className="quiet" title={who}>–</span>
+}
+
+// Přílohy k faktuře v okně: záložka na každou přílohu (NL 1, NL 2, DE 1…)
+function AttachmentsDialog({ attachments, month, placeName, stops, onExcel, onClose }: {
+  attachments: { customer: string; parts: { rows: { t: Trip; pr: Priced | null }[]; sum: number }[]; missing: number }[]
+  month: string; placeName: (id: string | null) => string; stops: StopsMap; onExcel: () => void; onClose: () => void
+}) {
+  const tabs = attachments.flatMap(a => a.parts.map((part, i) => ({ key: `${a.customer}|${i}`, label: `${a.customer.replace('TCS ', '')} ${i + 1}`, customer: a.customer, part, i })))
+  const [tab, setTab] = useState(tabs[0]?.key ?? '')
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const cur = tabs.find(x => x.key === tab) ?? tabs[0]
+  if (!cur) return null
+  const sum = (k: 'hrs' | 'car' | 'toll') => Math.round(cur.part.rows.reduce((x, r) => x + (r.pr?.[k] ?? 0), 0) * 100) / 100
+  return createPortal(
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="dialog cardialog repdialog" role="dialog" aria-label="Přílohy k faktuře">
+        <div className="dialoghead">
+          <h2>Přílohy k faktuře · {month}</h2>
+          <div className="tabs">{tabs.map(x => <button key={x.key} className={x.key === cur.key ? 'on' : ''} onClick={() => setTab(x.key)}>{x.label} <span className="quiet small">{money(x.part.sum, 'EUR')}</span></button>)}</div>
+          <button className="ghost" aria-label="Zavřít" onClick={onClose}>×</button>
+        </div>
+        <p className="quiet small">{cur.customer} · příloha {cur.i + 1} · {cur.part.rows.length} reportů v pořadí čísel, po max. 21 000 € · <button className="link small" onClick={onExcel}>Excel (všechny přílohy)</button> · <button className="link small" onClick={printPdf}>Tisk</button></p>
+        <div className="tablewrap">
+          <table className="grid plain sub2 attachgrid">
+            <thead><tr><th>Date</th><th>#Report</th><th>Ref#</th><th>Route</th><th className="num">HRS Price</th><th className="num">Car Price</th><th className="num">Toll Price</th><th className="num">Price</th></tr></thead>
+            <tbody>
+              {cur.part.rows.map(({ t, pr }) => (
+                <tr key={t.id} className={pr ? undefined : 'missingrow'}>
+                  <td>{dm(t.trip_date)}</td><td>{t.report_no}</td><td className="mono">{t.ref_tcs}</td>
+                  <td>{placeName(t.pup_id)}-{placeName(t.dop_id)}{stopsOf(t, stops).map(s => '-' + placeName(s.place_id)).join('')}{t.takeover ? ' (Take-Over)' : ''}{t.status === 'Canceled' ? ' (canceled)' : ''}</td>
+                  <td className="num">{pr ? pr.hrs.toLocaleString('cs-CZ') : <span className="missingtxt">bez ceny</span>}</td><td className="num">{pr?.car.toLocaleString('cs-CZ')}</td><td className="num">{pr?.toll.toLocaleString('cs-CZ')}</td><td className="num"><strong>{pr?.price.toLocaleString('cs-CZ')}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr><td colSpan={4}><strong>Celkem</strong></td><td className="num">{sum('hrs').toLocaleString('cs-CZ')}</td><td className="num">{sum('car').toLocaleString('cs-CZ')}</td><td className="num">{sum('toll').toLocaleString('cs-CZ')}</td><td className="num"><strong>{cur.part.sum.toLocaleString('cs-CZ')}</strong></td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
 }

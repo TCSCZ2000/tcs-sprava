@@ -615,7 +615,7 @@ function StatusInput(props: { value: string; color?: string; disabled?: boolean;
 }
 
 // Zapamatovaná volba na tomhle počítači (když prohlížeč nedovolí, platí jen do zavření)
-function usePref<T extends string>(key: string, initial: T): [T, (v: T) => void] {
+export function usePref<T extends string>(key: string, initial: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(() => {
     try { return (localStorage.getItem(key) as T) || initial } catch { return initial }
   })
