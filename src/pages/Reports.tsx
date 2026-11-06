@@ -10,6 +10,7 @@ import { chainHours, fmtGap, type Link } from '../lib/hours'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
 import { Text, usePref } from './Plan'
 import { SupplierDialog, supplierSummary } from './SupplierDialog'
+import { CrewDialog, crewSummary } from './CrewDialog'
 import { RouteSaveDialog } from './RouteSaveDialog'
 import { ReportDialog } from './ReportDialog'
 
@@ -27,7 +28,7 @@ const TIMES: { key: TimeKey; label: string }[] = [
 ]
 
 export default function Reports() {
-  const { level, people, cars, places, customers, statuses, toast } = useApp()
+  const { level, people, cars, places, customers, statuses, toast , crew, crewOf } = useApp()
   const canEdit = level('reports') === 'write'
   const seePrice = level('routes') !== 'none'
   const [routes, setRoutes] = useState<Route[]>([])
@@ -48,6 +49,7 @@ export default function Reports() {
   const [hiddenCust, setHiddenCust] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
   const [supFor, setSupFor] = useState<Trip | null>(null)
+  const [crewFor, setCrewFor] = useState<Trip | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [size, setSize] = usePref<'m' | 's' | 'xs'>('reports.size', 's')
   const [showAttach, setShowAttach] = useState(false)
@@ -77,7 +79,7 @@ export default function Reports() {
     supabase.from('trips').select('*').gte('trip_date', todayIso(-90)).neq('status', 'Canceled')
       .then(({ data }) => setChainTrips((data as Trip[]) ?? []))
   }, [trips])
-  const { byNext } = useMemo(() => chainHours(chainTrips, t => plannedStartIso(t, ridx, placeBy)), [chainTrips, ridx, placeBy])
+  const { byNext } = useMemo(() => chainHours(chainTrips, t => plannedStartIso(t, ridx, placeBy), crew), [chainTrips, ridx, placeBy, crew])
 
   // Návrh z trasy (ceníku) pro prázdná pole reportu: odjezd z domova = objednaný čas − Výjezd→PUP, příjezd domů = odjezd z Dop + DOP→Návrat
   // (nahoru na čtvrthodiny), km jako v Excelu narůstající (Km Pup, Km Dop, Km celkem), mýto = součet mýta úseků.
@@ -197,26 +199,26 @@ export default function Reports() {
 
   function excelAttachments() {
     const sheets: { name: string; rows: Cell[][]; widths?: number[] }[] = []
-    const overview: Cell[][] = [['Zákazník', 'Příloha', 'Reportů', 'HRS price', 'Car price', 'Toll', 'Celkem €']]
+    const overview: Cell[][] = [['Zákazník', 'Příloha', 'Reportů', 'HRS price', 'Car price', 'Toll', 'Extra', 'Celkem €']]
     for (const a of attachments) {
       const code = a.customer.replace('TCS ', '')
       a.parts.forEach((p, i) => {
-        const rows: Cell[][] = [['TCS', '', '', '', '', '', '', ''], [], ['Date', '#Report', 'Ref#', 'Route', 'HRS Price', 'Car Price', 'Toll Price', 'Price']]
-        let hrs = 0, car = 0, toll = 0
+        const rows: Cell[][] = [['TCS', '', '', '', '', '', '', '', ''], [], ['Date', '#Report', 'Ref#', 'Route', 'HRS Price', 'Car Price', 'Toll Price', 'Extra', 'Price']]
+        let hrs = 0, car = 0, toll = 0, extra = 0
         for (const { t, pr } of p.rows) {
-          rows.push([t.trip_date.split('-').reverse().join('.'), t.report_no, t.ref_tcs, `${placeBy.get(t.pup_id ?? '')?.name ?? '?'}-${placeBy.get(t.dop_id ?? '')?.name ?? '?'}${stopsOf(t, stops).map(s => '-' + (placeBy.get(s.place_id)?.name ?? '?')).join('')}${t.takeover ? ' (Take-Over)' : ''}${t.status === 'Canceled' ? ' (canceled)' : ''}`, pr?.hrs ?? '', pr?.car ?? '', pr?.toll ?? '', pr?.price ?? ''])
-          hrs += pr?.hrs ?? 0; car += pr?.car ?? 0; toll += pr?.toll ?? 0
+          rows.push([t.trip_date.split('-').reverse().join('.'), t.report_no, t.ref_tcs, `${placeBy.get(t.pup_id ?? '')?.name ?? '?'}-${placeBy.get(t.dop_id ?? '')?.name ?? '?'}${stopsOf(t, stops).map(s => '-' + (placeBy.get(s.place_id)?.name ?? '?')).join('')}${t.takeover ? ' (Take-Over)' : ''}${t.status === 'Canceled' ? ' (canceled)' : ''}${pr?.extra && t.extra_note ? ` (${t.extra_note})` : ''}`, pr?.hrs ?? '', pr?.car ?? '', pr?.toll ?? '', pr?.extra || '', pr?.price ?? ''])
+          hrs += pr?.hrs ?? 0; car += pr?.car ?? 0; toll += pr?.toll ?? 0; extra += pr?.extra ?? 0
         }
-        rows.push([], ['', '', '', 'Celkem', Math.round(hrs * 100) / 100, Math.round(car * 100) / 100, Math.round(toll * 100) / 100, p.sum])
-        sheets.push({ name: `Priloha ${code} ${i + 1}`, rows, widths: [11, 9, 9, 42, 10, 10, 10, 10] })
-        overview.push([a.customer, i + 1, p.rows.length, Math.round(hrs * 100) / 100, Math.round(car * 100) / 100, Math.round(toll * 100) / 100, p.sum])
+        rows.push([], ['', '', '', 'Celkem', Math.round(hrs * 100) / 100, Math.round(car * 100) / 100, Math.round(toll * 100) / 100, Math.round(extra * 100) / 100, p.sum])
+        sheets.push({ name: `Priloha ${code} ${i + 1}`, rows, widths: [11, 9, 9, 42, 10, 10, 10, 9, 10] })
+        overview.push([a.customer, i + 1, p.rows.length, Math.round(hrs * 100) / 100, Math.round(car * 100) / 100, Math.round(toll * 100) / 100, Math.round(extra * 100) / 100, p.sum])
       })
     }
-    exportXlsx(`prilohy_${doneMonth}`, [{ name: 'Přehled', rows: overview, widths: [10, 8, 9, 11, 11, 9, 11] }, ...sheets])
+    exportXlsx(`prilohy_${doneMonth}`, [{ name: 'Přehled', rows: overview, widths: [10, 8, 9, 11, 11, 9, 9, 11] }, ...sheets])
   }
 
   function excel() {
-    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Ref. zákazníka', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', 'Dodavatel', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'HRS price', 'Car price', 'Toll', 'Cena bez DPH', 'Měna', 'Poznámka', 'Status']
+    const head: Cell[] = ['Datum', 'Čas', 'Zákazník', '#Report', 'Ref.', 'Ref. zákazníka', 'Druh', 'Pup', 'Dop', 'Další Dop', 'Výjezd z', 'Návrat do', 'Take-over', 'Posádka', 'Auto', 'Dodavatel', ...TIMES.map(x => x.label), 'Km Pup', 'Km Dop', 'Km celkem', 'Mýto €', 'Celkem h', 'Eskorta h', 'Hodiny ručně', 'Navazuje', 'Varianta trasy', 'Cena podle', 'HRS price', 'Car price', 'Toll', 'Příplatek', 'Důvod příplatku', 'Cena bez DPH', 'Měna', 'Střídání', 'Poznámka', 'Status']
     const body: Cell[][] = []
     for (const [, rows] of groups) for (const t of rows) {
       const end = jobEnd(t, stops)
@@ -230,7 +232,7 @@ export default function Reports() {
         carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no, supplierSummary(t, personBy).join('; '),
         ...TIMES.map(x => fmtDT(t[x.key])), t.km_pup, t.km_dop, t.km_total, t.toll, total, escort, t.hours_manual,
         t.combi === true ? 'ano' : t.combi === false ? 'ne' : links.some(l => l.kind === 'auto' || l.kind === 'overlap') ? 'navrženo' : '',
-        route ? variantLabel(route.variant) : '', pr?.how, pr?.hrs, pr?.car, pr?.toll, pr?.price, pr?.currency, t.report_note, t.status])
+        route ? variantLabel(route.variant) : '', pr?.how, pr?.hrs, pr?.car, pr?.toll, pr?.extra || '', t.extra_note, pr?.price, pr?.currency, crewSummary(crewOf(t.id), [t.guard1_id, t.guard2_id, t.guard3_id], id => personBy.get(id)?.short_name ?? '?').join('; '), t.report_note, t.status])
     }
     exportXlsx(`reporty_${showDone ? doneMonth : todayIso()}`, [{ name: 'Reporty', rows: [head, ...body] }])
   }
@@ -341,7 +343,9 @@ export default function Reports() {
                     <td className="ro">{tripKind(t) === 'transport' && <span className="kindicon" title={KIND_LABEL.transport}>🚐 </span>}{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}{tstops.map(s => ` → ${placeBy.get(s.place_id)?.name ?? '?'}`).join('')}{baseLabel(t.base_from, t.base_to) && <span className="nltag">{baseLabel(t.base_from, t.base_to)}</span>}{t.takeover && <span className="totag" title="Take-over: cestu přebíráme od cizí posádky">Take-over</span>}{canceled && <span className="totag canceltag" title={t.cancel_mode === 'none' ? 'Zrušeno bez účtování' : t.cancel_mode === 'fee' ? 'Storno poplatek' : 'Zrušená cesta: storno (ruční cena + číslo + Hotovo), nebo bez účtování'}>{t.cancel_mode === 'none' ? 'zrušeno · neúčtuje se' : t.cancel_mode === 'fee' ? 'storno' : 'ZRUŠENO'}</span>}</td>
                     <td className="ro">{[t.guard1_id, t.guard2_id, t.guard3_id].filter(Boolean).map(id => personBy.get(id!)?.short_name).join(', ')}
                       {supplierSummary(t, personBy).map(x => <span key={x} className="suptag" title="Odchylka od standardu (SEMS, auto TCS)">{x}</span>)}
-                      {canEdit && <button className="link small quiet suplink" title="Dodavatel posádky a auta u téhle cesty (SEMS je standard)" onClick={() => setSupFor(t)}>dodavatel</button>}</td>
+                      {crewSummary(crewOf(t.id), [t.guard1_id, t.guard2_id, t.guard3_id], id => personBy.get(id)?.short_name ?? '?').map(x => <span key={x} className="suptag crewtag" title="Střídání posádky / náhradník – vlastní hodiny">{x}</span>)}
+                      {canEdit && <button className="link small quiet suplink" title="Dodavatel posádky a auta u téhle cesty (SEMS je standard)" onClick={() => setSupFor(t)}>dodavatel</button>}
+                      {canEdit && <button className="link small quiet suplink" title="Střídání posádky: vlastní od–do nebo hodiny u člověka, náhradník s autem a km" onClick={() => setCrewFor(t)}>střídání</button>}</td>
                     <td className="ro nowrap">{carBy.get(t.car_id ?? '')?.plate ?? carBy.get(t.car_id ?? '')?.car_no ?? ''}</td>
                     {TIMES.map((x, i) => transport && x.key === 'arr_pup' ? <td key={x.key} className="timecell ro quiet" title="U přepravy se nevyplňuje">—</td> : (
                       <td key={x.key} className="timecell" title={transport ? TR_LABEL[x.key] : undefined}>
@@ -480,12 +484,13 @@ export default function Reports() {
           sug={canEdit && !reportDone(t) ? suggestFor(t) : {}} total={total} escort={escort}
           combi={combiCell(t, byNext.get(t.id) ?? [], canEdit && !reportDone(t), v => save(t, { combi: v }), personBy)}
           canEdit={canEdit} seePrice={seePrice} canRoutes={canRoutes} save={patch => save(t, patch)} saveStop={saveStop} nextNumber={() => nextNumber(t)}
-          onSaveRoute={() => setRouteFor({ trip: t, similar: sug[0], composed: comp ?? undefined })} onSupplier={() => setSupFor(t)} onClose={() => setOpenId(null)}
+          onSaveRoute={() => setRouteFor({ trip: t, similar: sug[0], composed: comp ?? undefined })} onSupplier={() => setSupFor(t)} onCrew={() => setCrewFor(t)} onClose={() => setOpenId(null)}
           homeFor={x => plannedHomeIso(x, ridx, stops)} />
       })()}
       {routeFor && <RouteSaveDialog trip={trips.find(x => x.id === routeFor.trip.id) ?? routeFor.trip} placeName={id => placeBy.get(id ?? '')?.name ?? '?'} similar={routeFor.similar} composed={routeFor.composed}
         onSaved={id => { setRouteFor(null); loadRoutes(); if (id) save(routeFor.trip, { route_id: id }) }} onClose={() => setRouteFor(null)} />}
       {supFor && <SupplierDialog trip={trips.find(x => x.id === supFor.id) ?? supFor} onSave={p => save(supFor, p)} onClose={() => setSupFor(null)} />}
+      {crewFor && <CrewDialog trip={trips.find(x => x.id === crewFor.id) ?? crewFor} canEdit={canEdit} onClose={() => setCrewFor(null)} />}
     </section>
   )
 }
@@ -555,13 +560,13 @@ function AttachmentsDialog({ attachments, month, placeName, stops, onExcel, onCl
         <p className="quiet small">{cur.customer} · příloha {cur.i + 1} · {cur.part.rows.length} reportů v pořadí čísel, po max. 21 000 € · <button className="link small" onClick={onExcel}>Excel (všechny přílohy)</button> · <button className="link small" onClick={printPdf}>Tisk</button></p>
         <div className="tablewrap">
           <table className="grid plain sub2 attachgrid">
-            <thead><tr><th>Date</th><th>#Report</th><th>Ref#</th><th>Route</th><th className="num">HRS Price</th><th className="num">Car Price</th><th className="num">Toll Price</th><th className="num">Price</th></tr></thead>
+            <thead><tr><th>Date</th><th>#Report</th><th>Ref#</th><th>Route</th><th className="num">HRS Price</th><th className="num">Car Price</th><th className="num">Toll Price</th><th className="num">Extra</th><th className="num">Price</th></tr></thead>
             <tbody>
               {cur.part.rows.map(({ t, pr }) => (
                 <tr key={t.id} className={pr ? undefined : 'missingrow'}>
                   <td>{dm(t.trip_date)}</td><td>{t.report_no}</td><td className="mono">{t.ref_tcs}</td>
-                  <td>{placeName(t.pup_id)}-{placeName(t.dop_id)}{stopsOf(t, stops).map(s => '-' + placeName(s.place_id)).join('')}{t.takeover ? ' (Take-Over)' : ''}{t.status === 'Canceled' ? ' (canceled)' : ''}</td>
-                  <td className="num">{pr ? pr.hrs.toLocaleString('cs-CZ') : <span className="missingtxt">bez ceny</span>}</td><td className="num">{pr?.car.toLocaleString('cs-CZ')}</td><td className="num">{pr?.toll.toLocaleString('cs-CZ')}</td><td className="num"><strong>{pr?.price.toLocaleString('cs-CZ')}</strong></td>
+                  <td>{placeName(t.pup_id)}-{placeName(t.dop_id)}{stopsOf(t, stops).map(s => '-' + placeName(s.place_id)).join('')}{t.takeover ? ' (Take-Over)' : ''}{t.status === 'Canceled' ? ' (canceled)' : ''}{pr?.extra && t.extra_note ? ` (${t.extra_note})` : ''}</td>
+                  <td className="num">{pr ? pr.hrs.toLocaleString('cs-CZ') : <span className="missingtxt">bez ceny</span>}</td><td className="num">{pr?.car.toLocaleString('cs-CZ')}</td><td className="num">{pr?.toll.toLocaleString('cs-CZ')}</td><td className="num" title={t.extra_note ?? ''}>{pr?.extra ? pr.extra.toLocaleString('cs-CZ') : ''}</td><td className="num"><strong>{pr?.price.toLocaleString('cs-CZ')}</strong></td>
                 </tr>
               ))}
             </tbody>

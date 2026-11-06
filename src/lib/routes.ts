@@ -23,20 +23,25 @@ const fmtH = (h: number) => h.toString().replace('.', ',')
 // (request čas cesty → odjezd z Dop) se zaokrouhlí nahoru na čtvrthodiny a připočtou × počet lidí × sazba/h (sazba je na 1 člena posádky).
 // Jinak: hodiny každého z posádky × sazba/h + km × sazba/km + mýto.
 // Rozklad ceny jako v Přehledu / přílohách faktury: HRS price (hodiny), Car price (km × sazba), Toll. U pevné ceny je car = km × sazba/km, toll = mýto, hrs = zbytek.
-export type Priced = { price: number; how: string; currency: 'EUR' | 'CZK'; hrs: number; car: number; toll: number }
+export type Priced = { price: number; how: string; currency: 'EUR' | 'CZK'; hrs: number; car: number; toll: number; extra: number }
 const r2 = (v: number) => Math.round(v * 100) / 100
 export function breakdown(t: Trip, route: Route | undefined, price: number, how: string, currency: 'EUR' | 'CZK'): Priced {
   const transport = tripKind(t) === 'transport'
   const km = t.km_total ?? (route ? totalKm(route) : 0)
   const car = t.rate_km != null ? r2(km * Number(t.rate_km)) : route ? r2(km * Number(route.rate_km)) : 0
   const toll = transport ? 0 : r2(Number(t.toll ?? (route ? totalToll(route) : 0)))
-  return { price, how, currency, car: Math.min(car, price), toll: Math.min(toll, Math.max(0, price - car)), hrs: r2(Math.max(0, price - Math.min(car, price) - Math.min(toll, Math.max(0, price - car)))) }
+  const extra = t.price_manual != null ? 0 : r2(Number(t.extra_fee ?? 0))
+  const rest = Math.max(0, price - extra)
+  const carC = Math.min(car, rest), tollC = Math.min(toll, Math.max(0, rest - carC))
+  return { price, how, currency, extra, car: carC, toll: tollC, hrs: r2(Math.max(0, rest - carC - tollC)) }
 }
 // Když trasa v ceníku chybí, počítá se ze sazeb zákazníka (fallback) a z km a mýta v reportu
 export type RateFallback = { rate_h: number; rate_km: number; currency: 'EUR' | 'CZK'; label: string }
 export function tripPrice(t: Trip, route: Route | undefined, prices: RoutePrice[], hoursTotal: number | null, fixedH: number | null, fallback?: RateFallback | null): Priced | null {
-  const r = tripPriceRaw(t, route, prices, hoursTotal, fixedH, fallback)
-  if (!r) return null
+  const r0 = tripPriceRaw(t, route, prices, hoursTotal, fixedH, fallback)
+  if (!r0) return null
+  const fee = t.price_manual == null && t.extra_fee ? Number(t.extra_fee) : 0
+  const r = fee ? { ...r0, price: r2(r0.price + fee), how: `${r0.how} + příplatek ${money(fee, r0.currency)}${t.extra_note ? ` (${t.extra_note})` : ''}` } : r0
   const rt = route ?? (fallback ? ({ rate_km: fallback.rate_km, ho_pup_km: 0, pup_dop_km: 0, dop_ho_km: 0, ho_pup_toll: 0, pup_dop_toll: 0, dop_ho_toll: 0 } as unknown as Route) : undefined)
   return breakdown(t, rt, r.price, r.how, r.currency)
 }

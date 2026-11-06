@@ -72,6 +72,7 @@ export interface Trip {
   km_pup: number | null; km_dop: number | null; km_total: number | null; toll: number | null; hours_manual: number | null; report_note: string | null
   route_price_id: string | null
   price_manual: number | null
+  extra_fee: number | null; extra_note: string | null
   start_at: string | null
   home_at: string | null
   route_id: string | null
@@ -92,6 +93,8 @@ export interface Trip {
 export const reportDone = (t: Pick<Trip, 'report_done_at'>) => t.report_done_at != null
 
 // Dodavatel člena posádky na dané cestě: přepsaný u cesty, jinak výchozí u člověka, jinak bez dodavatele
+// Střídání posádky: vlastní od–do / hodiny, auto a km, dodavatel u konkrétního člověka na cestě (i náhradník mimo Planning)
+export interface TripCrew { id: string; trip_id: string; person_id: string; start_at: string | null; end_at: string | null; hours: number | null; car_id: string | null; km: number | null; supplier: string | null; note: string | null; updated_at: string }
 export function supplierOf(t: Pick<Trip, 'guard1_id' | 'guard2_id' | 'guard3_id' | 'guard1_supplier' | 'guard2_supplier' | 'guard3_supplier'>, personId: string, personBy: Map<string, Person>): string {
   const slot = t.guard1_id === personId ? t.guard1_supplier : t.guard2_id === personId ? t.guard2_supplier : t.guard3_id === personId ? t.guard3_supplier : null
   return slot ?? personBy.get(personId)?.supplier ?? NO_SUPPLIER

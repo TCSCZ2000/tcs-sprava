@@ -9,6 +9,7 @@ import { baseLabel } from '../lib/supabase'
 import { buildRouteIndex, dopHoHours, hoPupHours, plannedHomeIso, plannedStartIso, requestIso, routeVariants } from '../lib/planned'
 import { KIND_LABEL, isTcsCustomer, jobEnd, loadStops, pickRoute, stopsOf, tripKind, type StopsMap, type TripStop } from '../lib/supabase'
 import { TripDialog, emptyForm, formFromTrip, type TripForm } from './TripDialog'
+import { CrewDialog, crewSummary } from './CrewDialog'
 
 type GuardKey = 'guard1_id' | 'guard2_id' | 'guard3_id'
 const GUARDS: GuardKey[] = ['guard1_id', 'guard2_id', 'guard3_id']
@@ -17,7 +18,8 @@ const NO_CUSTOMER = '—'
 const EARLY = ['HEADS-UP', 'Confirmed', 'Send']
 
 export default function Plan() {
-  const { level, people, cars, places, statuses: allStatuses, customers, carCategories, docs, toast, reloadLists } = useApp()
+  const { level, people, cars, places, statuses: allStatuses, customers, carCategories, docs, crewOf, toast, reloadLists } = useApp()
+  const [crewFor, setCrewFor] = useState<Trip | null>(null)
   // Report = cesta odjela a čeká na dopsání reportu v záložce Reporty, v Planningu není
   const statuses = allStatuses
   const canNotes = level('planning') === 'write'
@@ -538,6 +540,8 @@ export default function Plan() {
                           {(canNotes || canCrew) && <button className="link" onClick={() => save(t, { crew_change: null })}>Sděleno zákazníkovi</button>}
                         </span>
                       )}
+                      {crewSummary(crewOf(t.id), [t.guard1_id, t.guard2_id, t.guard3_id], id => personBy.get(id)?.short_name ?? '?').map(x => <span key={x} className="suptag crewtag" title="Střídání posádky / náhradník">{x}</span>)}
+                      {canCrew && !hist && <button className="link small quiet suplink" title="Střídání posádky během cesty: vlastní od–do u člověka, náhradník s autem a km" onClick={() => setCrewFor(t)}>střídání</button>}
                     </td>
                     {canCreate && <td className="w-x"><button className="ghost" title="Smazat cestu" aria-label="Smazat cestu" onClick={() => removeTrip(t)}>×</button></td>}
                   </tr>
@@ -551,6 +555,7 @@ export default function Plan() {
         )}
       </div>
 
+      {crewFor && <CrewDialog trip={trips.find(x => x.id === crewFor.id) ?? crewFor} canEdit={canCrew} onClose={() => setCrewFor(null)} />}
       {dlg && (
         <TripDialog
           title={dlg.mode === 'new' ? 'Nová cesta' : 'Detail cesty'}

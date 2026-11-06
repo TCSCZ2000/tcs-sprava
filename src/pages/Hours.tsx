@@ -18,7 +18,7 @@ const monthStart = (m: string) => `${m}-01`
 type Row = { key: string; person: string; supplier: string; segs: Seg[]; extra: HoursExtra[]; raw: number; real: number; mimo: number; pevne: number; total: number; pending: number }
 
 export default function Hours() {
-  const { level, people, places, suppliers, toast } = useApp()
+  const { level, people, places, suppliers, crew, toast } = useApp()
   const canEdit = level('hours') === 'write'
   const [month, setMonth] = useState(todayIso().slice(0, 7))
   const [trips, setTrips] = useState<Trip[]>([])
@@ -48,7 +48,7 @@ export default function Hours() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [month])
 
-  const { segs } = useMemo(() => chainHours(trips, t => plannedStartIso(t, ridx, placeBy)), [trips, ridx, placeBy])
+  const { segs } = useMemo(() => chainHours(trips, t => plannedStartIso(t, ridx, placeBy), crew), [trips, ridx, placeBy, crew])
   const inMonth = (t: Trip) => t.trip_date >= from && t.trip_date < to
   const counted = (t: Trip) => t.status === 'Finished' && reportDone(t)
   const pendingTrips = useMemo(() => trips.filter(t => inMonth(t) && !counted(t) && t.status !== 'Canceled'), [trips, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -60,7 +60,7 @@ export default function Hours() {
     const defSup = (p: string) => personBy.get(p)?.supplier ?? NO_SUPPLIER
     for (const s of segs.values()) {
       if (!inMonth(s.trip)) continue
-      const sup = supplierOf(s.trip, s.person, personBy)
+      const sup = s.ov?.supplier ?? supplierOf(s.trip, s.person, personBy)
       if (!counted(s.trip)) { if (s.trip.status !== 'Canceled') row(s.person, sup).pending++; continue }
       const r = row(s.person, sup); r.segs.push(s); r.raw += s.hoursRaw ?? 0; r.real += s.hours ?? 0
     }
@@ -71,8 +71,18 @@ export default function Hours() {
   }, [segs, extra, personBy, suppliers, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // auta od dodavatelů: cesty v měsíci s hotovým reportem, kde auto dodal dodavatel (platí se km × sazba + mýto)
-  const supCars = useMemo(() => trips.filter(t => inMonth(t) && counted(t) && t.car_supplier).sort((a, b) => a.trip_date.localeCompare(b.trip_date)), [trips, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
-  const supCarAmount = (t: Trip) => { const rate = suppliers.find(x => x.name === t.car_supplier)?.rate_km; return rate != null && t.supplier_km != null ? round2(Number(t.supplier_km) * Number(rate) + Number(t.supplier_toll ?? 0)) : null }
+  // + km náhradníka / střídání (auto člověka, který dojel na místo střídání) – platí se jeho dodavateli
+  type SupCar = { key: string; supplier: string; t: Trip; km: number | null; toll: number | null; who: string }
+  const supCars = useMemo<SupCar[]>(() => {
+    const out: SupCar[] = trips.filter(t => inMonth(t) && counted(t) && t.car_supplier).map(t => ({ key: t.id, supplier: t.car_supplier!, t, km: t.supplier_km, toll: t.supplier_toll, who: '' }))
+    for (const c of crew) {
+      const t = trips.find(x => x.id === c.trip_id)
+      if (!t || !inMonth(t) || !counted(t) || !c.km) continue
+      out.push({ key: c.id, supplier: c.supplier ?? supplierOf(t, c.person_id, personBy), t, km: c.km, toll: null, who: personBy.get(c.person_id)?.short_name ?? '?' })
+    }
+    return out.sort((a, b) => a.t.trip_date.localeCompare(b.t.trip_date))
+  }, [trips, crew, from, to, personBy]) // eslint-disable-line react-hooks/exhaustive-deps
+  const supCarAmount = (c: SupCar) => { const rate = suppliers.find(x => x.name === c.supplier)?.rate_km; return rate != null && c.km != null ? round2(Number(c.km) * Number(rate) + Number(c.toll ?? 0)) : null }
   const multiSup = new Set(rows.map(r => r.supplier)).size > 1 || supCars.length > 0
 
   const sum = (k: 'raw' | 'real' | 'mimo' | 'pevne' | 'total', sup?: string) => round2(rows.filter(r => !sup || r.supplier === sup).reduce((a, r) => a + r[k], 0))
@@ -107,11 +117,11 @@ export default function Hours() {
     summary.push(['', 'CELKEM', sum('raw'), sum('real'), round2(sum('raw') - sum('real')), sum('mimo'), sum('pevne'), sum('total')])
     const detail: Cell[][] = [['Dodavatel', 'Jméno', '#Report', 'Ref.', 'Od', 'Do (report)', 'Do (pro hodiny)', 'Hodiny', 'Poznámka']]
     for (const r of rows) {
-      for (const s of r.segs) detail.push([supplierLabel(r.supplier), name(r.person), s.trip.report_no, s.trip.ref_tcs, fmtDT(s.start), fmtDT(s.end), fmtDT(s.endAdj ?? s.end), s.hours, adjNote(s)])
+      for (const s of r.segs) detail.push([supplierLabel(r.supplier), name(r.person), s.trip.report_no, s.trip.ref_tcs, fmtDT(s.start), fmtDT(s.end), fmtDT(s.endAdj ?? s.end), s.hours, [s.ov ? (s.ov.note || 'střídání') : '', adjNote(s)].filter(Boolean).join(' · ')])
       for (const e of r.extra) detail.push([supplierLabel(r.supplier), name(r.person), '', KINDS.find(k => k.key === e.kind)?.label, e.work_date, '', '', Number(e.hours), e.note])
     }
     const cars: Cell[][] = [['Dodavatel', 'Datum', '#Report', 'Ref.', 'Trasa', 'Km', 'Kč/km', 'Mýto', 'Celkem Kč']]
-    for (const t of supCars) cars.push([t.car_supplier, t.trip_date.split('-').reverse().join('.'), t.report_no, t.ref_tcs, `${placeBy.get(t.pup_id ?? '')?.name ?? '?'} → ${placeBy.get(t.dop_id ?? '')?.name ?? '?'}`, t.supplier_km, suppliers.find(x => x.name === t.car_supplier)?.rate_km ?? '', t.supplier_toll, supCarAmount(t)])
+    for (const c of supCars) cars.push([supplierLabel(c.supplier), c.t.trip_date.split('-').reverse().join('.'), c.t.report_no, c.t.ref_tcs, `${placeBy.get(c.t.pup_id ?? '')?.name ?? '?'} → ${placeBy.get(c.t.dop_id ?? '')?.name ?? '?'}${c.who ? ` (${c.who})` : ''}`, c.km, suppliers.find(x => x.name === c.supplier)?.rate_km ?? '', c.toll, supCarAmount(c)])
     exportXlsx(`hodiny_${month}`, [{ name: 'Lidé', rows: summary, widths: [12, 18, 14, 12, 10, 12, 12, 10] }, { name: 'Detail', rows: detail, widths: [12, 18, 9, 9, 16, 16, 16, 8, 40] }, ...(supCars.length ? [{ name: 'Auta dodavatelů', rows: cars, widths: [14, 10, 9, 9, 36, 8, 8, 8, 10] }] : [])])
   }
 
@@ -188,8 +198,9 @@ export default function Hours() {
                             <td>{s.trip.report_no}</td><td>{s.trip.ref_tcs}</td><td>{fmtDT(s.start)}</td>
                             <td className={s.endAdj ? 'strike' : ''}>{fmtDT(s.end)}</td>
                             <td className={s.adj ? 'adj-' + s.adj.kind : ''}>{s.endAdj ? fmtDT(s.endAdj) : ''}</td>
-                            <td className="num">{fmtH(s.hours)}{s.manual && <span className="quiet small" title="Hodiny ručně z reportu"> ručně</span>}</td>
+                            <td className="num">{fmtH(s.hours)}{s.manual && <span className="quiet small" title="Hodiny ručně"> ručně</span>}</td>
                             <td className="quiet">
+                              {s.ov && <span className="suptag crewtag" title="Střídání / náhradník – vlastní od–do">{s.ov.note || 'střídání'}</span>}{s.ov && ' '}
                               {adjNote(s)}
                               {s.adj?.kind === 'auto' && canEdit && <> <button className="link small" onClick={() => setCombi(s.adj!.next, true)}>Potvrdit</button> <button className="link small" onClick={() => setCombi(s.adj!.next, false)}>Nenavazuje</button></>}
                               {!s.adj && s.next && s.next.kind === 'none' && <>další cesta za {fmtGap(s.next.gapH)}{s.next.planned ? ' (podle plánovaného startu)' : ''}{canEdit && <> <button className="link small" onClick={() => setCombi(s.next!.trip, true)}>navazuje</button></>}</>}
@@ -228,12 +239,12 @@ export default function Hours() {
           <table className="grid plain sub2">
             <thead><tr><th>Dodavatel</th><th>Datum</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th className="num">Km</th><th className="num">Kč/km</th><th className="num">Mýto</th><th className="num">Celkem Kč</th></tr></thead>
             <tbody>
-              {supCars.map(t => (
-                <tr key={t.id}>
-                  <td><strong>{t.car_supplier}</strong></td><td>{t.trip_date.split('-').reverse().join('. ')}</td><td>{t.report_no}</td><td>{t.ref_tcs}</td>
-                  <td>{placeBy.get(t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(t.dop_id ?? '')?.name ?? '?'}</td>
-                  <td className="num">{t.supplier_km ?? ''}</td><td className="num">{suppliers.find(x => x.name === t.car_supplier)?.rate_km ?? <span className="quiet small">chybí sazba</span>}</td>
-                  <td className="num">{t.supplier_toll ?? ''}</td><td className="num"><strong>{supCarAmount(t)?.toLocaleString('cs-CZ') ?? ''}</strong></td>
+              {supCars.map(c => (
+                <tr key={c.key}>
+                  <td><strong>{supplierLabel(c.supplier)}</strong></td><td>{c.t.trip_date.split('-').reverse().join('. ')}</td><td>{c.t.report_no}</td><td>{c.t.ref_tcs}</td>
+                  <td>{placeBy.get(c.t.pup_id ?? '')?.name ?? '?'} → {placeBy.get(c.t.dop_id ?? '')?.name ?? '?'}{c.who && <span className="suptag crewtag" title="Km náhradníka / střídání">{c.who}</span>}</td>
+                  <td className="num">{c.km ?? ''}</td><td className="num">{suppliers.find(x => x.name === c.supplier)?.rate_km ?? <span className="quiet small">chybí sazba</span>}</td>
+                  <td className="num">{c.toll ?? ''}</td><td className="num"><strong>{supCarAmount(c)?.toLocaleString('cs-CZ') ?? ''}</strong></td>
                 </tr>
               ))}
             </tbody>
