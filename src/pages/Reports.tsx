@@ -294,11 +294,11 @@ export default function Reports() {
                 const end = jobEnd(t, stops)
                 const total = hours(t.dep_home, t.arr_home), escort = hours(t.dep_pup, end)
                 const canceled = t.status === 'Canceled'
-                const ready = canceled ? !!t.report_no && t.price_manual != null : !!t.report_no && !!t.dep_home && !!t.arr_home
+                const routeNow = pickRoute(t, routeBy.get(tripRouteKey(t, tstops)))
+                const ready = canceled ? !!t.report_no && (t.price_manual != null || !!t.route_price_id || !!routeNow || !!fallbackFor(t)) : !!t.report_no && !!t.dep_home && !!t.arr_home
                 const ed = canEdit && !done
                 const transport = tripKind(t) === 'transport'   // přeprava: jen Odjezd, Naloženo, Příjezd na vykládku, Vyloženo, Příjezd, Km celkem
                 const tcs = isTcsCustomer(t.customer, customers)
-                const routeNow = pickRoute(t, routeBy.get(tripRouteKey(t, tstops)))
                 const TR_LABEL: Partial<Record<TimeKey, string>> = { dep_pup: 'Naloženo', arr_dop: 'Příjezd na vykládku', dep_dop: 'Vyloženo' }
                 const sug = ed ? suggestFor(t) : {}
                 return (
@@ -398,7 +398,7 @@ export default function Reports() {
                       {canEdit && !done && (
                         <>
                           {Object.keys(sug).length > 0 && <button className="link small" title={'Doplní prázdná pole podle trasy: ' + Object.entries(sug).map(([k, v]) => `${k} ${typeof v === 'string' && v.includes('T') ? fmtDT(v) : v}`).join(', ')} onClick={() => save(t, sug)}>doplnit z trasy</button>}{' '}
-                          <button className="primary small" disabled={!ready} title={ready ? (canceled ? 'Uzavřít storno' : 'Uzavřít report') : canceled ? 'Storno: chybí číslo reportu nebo ruční cena' : 'Chybí číslo reportu, odjezd nebo příjezd domů'}
+                          <button className="primary small" disabled={!ready} title={ready ? (canceled ? 'Uzavřít storno' : 'Uzavřít report') : canceled ? 'Storno: chybí číslo reportu nebo cena' : 'Chybí číslo reportu, odjezd nebo příjezd domů'}
                             onClick={() => save(t, { report_done_at: new Date().toISOString(), ...(canceled ? { cancel_mode: 'fee' as const } : {}) })}>Hotovo</button>{' '}
                           {canceled && <><button className="link small" title="Zrušená cesta zůstane v Historii pro přehled, nic se neúčtuje" onClick={() => save(t, { report_done_at: new Date().toISOString(), cancel_mode: 'none' })}>bez účtování</button>{' '}</>}
                           <button className="link small" onClick={() => save(t, { status: 'Departed' })} title="Vrátit cestu do Planningu se statusem Departed">Do Planningu</button>

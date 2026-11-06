@@ -34,7 +34,7 @@ export function ReportDialog(p: {
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
   }, [p])
   const canceled = t.status === 'Canceled'
-  const ready = canceled ? !!t.report_no && t.price_manual != null : !!t.report_no && !!t.dep_home && !!t.arr_home
+  const ready = canceled ? !!t.report_no && (t.price_manual != null || priced != null) : !!t.report_no && !!t.dep_home && !!t.arr_home
   const num = (v: string) => { const s = v.replace(/\s/g, '').replace(',', '.'); if (!s) return null; const n = Number(s); return Number.isFinite(n) ? n : undefined }
   const times = TIMES.filter(x => !(transport && x.key === 'arr_pup'))
   const prevFilled = (i: number) => { for (let k = i - 1; k >= 0; k--) { const v = t[TIMES[k].key]; if (v) return v.replace(' ', 'T') } return `${t.trip_date}T00:00:00` }
@@ -143,7 +143,7 @@ export function ReportDialog(p: {
           {canEdit && !done && <>
             <button className="link small" onClick={() => save({ status: 'Departed' })} title="Vrátit cestu do Planningu se statusem Departed">Do Planningu</button>
             {canceled && <button className="link small" onClick={() => { save({ report_done_at: new Date().toISOString(), cancel_mode: 'none' }); p.onClose() }}>bez účtování</button>}
-            <button className="primary" disabled={!ready} title={ready ? 'Uzavřít' : canceled ? 'Storno: chybí číslo reportu nebo ruční cena' : 'Chybí číslo reportu, odjezd nebo příjezd domů'} onClick={() => { save({ report_done_at: new Date().toISOString(), ...(canceled ? { cancel_mode: 'fee' as const } : {}) }); p.onClose() }}>Hotovo</button>
+            <button className="primary" disabled={!ready} title={ready ? 'Uzavřít' : canceled ? 'Storno: chybí číslo reportu nebo cena' : 'Chybí číslo reportu, odjezd nebo příjezd domů'} onClick={() => { save({ report_done_at: new Date().toISOString(), ...(canceled ? { cancel_mode: 'fee' as const } : {}) }); p.onClose() }}>Hotovo</button>
           </>}
           {canEdit && done && <button className="link" onClick={() => save({ report_done_at: null, cancel_mode: null })}>Znovu otevřít</button>}
         </div>
