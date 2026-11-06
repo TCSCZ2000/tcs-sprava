@@ -292,6 +292,22 @@ export default function Reports() {
               <tr className="dayrow"><td colSpan={COLS}>
                 <span className="daylabel">{cust === NO_CUSTOMER ? 'Bez zákazníka' : cust}</span>
                 <span className="daycount">{rows.length} {rows.length === 1 ? 'cesta' : rows.length < 5 ? 'cesty' : 'cest'}</span>
+                {seePrice && (() => {
+                  // obrat zákazníka: hotové reporty (za zvolený měsíc) a rozpracované, zvlášť po měnách
+                  const tot: Record<string, { done: number; open: number; nDone: number; nOpen: number; missing: number }> = {}
+                  for (const t of rows) {
+                    if (t.cancel_mode === 'none') continue
+                    const pr = priceOf(t); const cur = pr?.currency ?? 'EUR'
+                    const x = tot[cur] ?? (tot[cur] = { done: 0, open: 0, nDone: 0, nOpen: 0, missing: 0 })
+                    if (!pr) { x.missing++; continue }
+                    if (reportDone(t)) { x.done += pr.price; x.nDone++ } else { x.open += pr.price; x.nOpen++ }
+                  }
+                  return Object.entries(tot).map(([cur, x]) => (
+                    <span key={cur} className="turnover" title={`Hotové reporty${showDone ? ` za ${doneMonth}` : ''}: ${x.nDone}, rozpracované: ${x.nOpen}${x.missing ? `, bez ceny: ${x.missing}` : ''}`}>
+                      obrat <strong>{money(Math.round(x.done * 100) / 100, cur as 'EUR' | 'CZK')}</strong>{x.open > 0 && <span className="quiet"> + rozpracované {money(Math.round(x.open * 100) / 100, cur as 'EUR' | 'CZK')}</span>}{x.missing > 0 && <span className="missingtxt"> · {x.missing} bez ceny</span>}
+                    </span>
+                  ))
+                })()}
               </td></tr>
               {rows.map(t => {
                 const st = statusBy.get(t.status ?? '')

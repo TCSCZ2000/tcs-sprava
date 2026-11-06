@@ -463,3 +463,4 @@ tr.canceledrow td.ro:first-of-type { text-decoration: none; }
 .attachgrid tfoot td { background: var(--surface-2, #eef2f5); border-top: 2px solid var(--line); }
 .attachgrid tr.missingrow td { background: var(--expired); }
 .attachgrid td.num, .attachgrid th.num { text-align: right; }
+.turnover { margin-left: 1rem; font-size: .85rem; font-weight: 400; }
