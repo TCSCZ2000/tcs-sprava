@@ -477,3 +477,17 @@ tr.canceledrow td.ro:first-of-type { text-decoration: none; }
 .finesgrid tr.proposed td { background: color-mix(in srgb, #fbbf24 10%, transparent); }
 .repdialog .ro { display: block; padding: .35rem 0; }
 .repdialog .newroute input[type=file] { max-width: 16rem; }
+
+/* Úprava fotky dokladu + export do PDF */
+.overlay.lightbox.editor { cursor: default; justify-content: flex-start; padding-top: .8rem; }
+.lbbar.top { margin: 0 0 .6rem; flex-wrap: wrap; justify-content: center; }
+.lbbar.top .ghostbtn { background: rgba(255,255,255,.1); color: #fff; border-color: rgba(255,255,255,.3); }
+.lbbar.top .ghostbtn:disabled { opacity: .4; }
+.lbbar.small { font-size: .8rem; opacity: .8; }
+.editcanvas { max-width: calc(100vw - 80px); background: #fff; box-shadow: 0 10px 40px rgba(0,0,0,.5); cursor: crosshair; touch-action: none; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.chips .chip.on { --c: var(--accent); display: inline-flex; align-items: center; gap: .2rem; }
+.chips .chip .ghost { padding: 0 .2rem; line-height: 1; }
+.hits { display: flex; flex-wrap: wrap; gap: .3rem .8rem; margin-top: .3rem; }
+.check.inline { display: inline-flex; margin: 0 .8rem .2rem 0; gap: .3rem; }
+.formgrid label.check.inline { flex-direction: row; align-items: center; gap: .3rem; }

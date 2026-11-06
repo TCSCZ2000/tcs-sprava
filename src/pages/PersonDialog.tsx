@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ImageEditor } from './ImageEditor'
+import { buildDocsPdf, downloadBlob, isImageDoc } from '../lib/docimage'
 import { supabase, type Person, type PersonDoc } from '../lib/supabase'
 import { explain, useApp } from '../lib/data'
 import { docState } from '../lib/format'
@@ -93,6 +95,20 @@ function DocsTab({ person }: { person: Person }) {
   const [kind, setKind] = useState('op')
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<{ url: string; name: string; mime: string | null } | null>(null)
+  const [edit, setEdit] = useState<PersonDoc | null>(null)
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [pdfBusy, setPdfBusy] = useState('')
+  const toggle = (id: string) => setSel(cur => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n })
+  async function exportPdf() {
+    const items = docs.filter(d => sel.has(d.id) && d.path).map(d => ({ doc: d, personName: `${person.first_name} ${person.last_name}`, kindLabel: kindOf(d.kind)?.label ?? d.kind }))
+    if (!items.length) return toast('Zaškrtněte doklady se souborem.', 'err')
+    setPdfBusy('připravuji…')
+    try {
+      const blob = await buildDocsPdf(items, (i, n) => setPdfBusy(`${i}/${n}`))
+      downloadBlob(blob, `${person.last_name}_${person.first_name}_doklady.pdf`.replace(/\s+/g, '_'))
+    } catch (e) { toast('PDF se nepodařilo vytvořit: ' + ((e as Error).message ?? ''), 'err') }
+    setPdfBusy('')
+  }
 
   async function upload(list: FileList | null) {
     if (!list?.length) return
@@ -141,22 +157,30 @@ function DocsTab({ person }: { person: Person }) {
           <span className="quiet small">Fotka nebo PDF do 25 MB. Číslo a platnost pak dopište v řádku.</span>
         </div>
       )}
+      {docs.some(d => d.path) && (
+        <p className="newroute">
+          <label className="check"><input type="checkbox" checked={sel.size > 0 && docs.filter(d => d.path).every(d => sel.has(d.id))} onChange={e => setSel(e.target.checked ? new Set(docs.filter(d => d.path).map(d => d.id)) : new Set())} />vybrat vše</label>
+          <button className="ghostbtn" disabled={!sel.size || !!pdfBusy} onClick={exportPdf}>{pdfBusy ? `PDF ${pdfBusy}` : `Export do PDF${sel.size ? ` (${sel.size})` : ''}`}</button>
+          <span className="quiet small">Vybrané doklady na stránkách A4 s hlavičkou (jméno, druh, číslo, platnost) – k poslání. U fotky jde „upravit“: otočit a oříznout.</span>
+        </p>
+      )}
       {proposed > 0 && <p className="warn">{proposed} {proposed === 1 ? 'doklad má' : proposed < 5 ? 'doklady mají' : 'dokladů má'} typ, číslo a platnost jen navržené z fotky. Zkontrolujte a potvrďte, nebo opravte.</p>}
       <div className="tablewrap">
         <table className="grid plain sub2 docs">
-          <thead><tr><th>Druh</th><th>Číslo</th><th>Platí do</th><th>Soubor</th><th>Stav</th><th>Poznámka</th><th /></tr></thead>
+          <thead><tr><th /><th>Druh</th><th>Číslo</th><th>Platí do</th><th>Soubor</th><th>Stav</th><th>Poznámka</th><th /></tr></thead>
           <tbody>
             {docs.map(d => {
               const k = kindOf(d.kind); const m = docState(d.valid_to)
               return (
                 <tr key={d.id} className={d.status === 'navrzeno' ? 'proposed' : undefined}>
+                  <td>{d.path && <input type="checkbox" checked={sel.has(d.id)} onChange={() => toggle(d.id)} />}</td>
                   <td className="nowrap">
                     {canEdit ? <select value={d.kind} onChange={e => patch(d, { kind: e.target.value })}>{docKinds.map(x => <option key={x.key} value={x.key}>{x.label}</option>)}</select> : k?.label ?? d.kind}
                     {(d.kind === 'jine' || d.kind === 'dpp') && <input className="cell" placeholder="název" defaultValue={d.name ?? ''} key={'n' + d.name} disabled={!canEdit} onBlur={e => e.target.value !== (d.name ?? '') && patch(d, { name: e.target.value.trim() || null })} />}
                   </td>
                   <td>{k?.numbered !== false && <input className="cell mono" defaultValue={d.number ?? ''} key={'c' + d.number} disabled={!canEdit} onBlur={e => e.target.value !== (d.number ?? '') && patch(d, { number: e.target.value.trim() || null })} />}</td>
                   <td className={m ?? undefined}>{k?.expires !== false && <input type="date" defaultValue={d.valid_to ?? ''} key={'v' + d.valid_to} disabled={!canEdit} onBlur={e => e.target.value !== (d.valid_to ?? '') && patch(d, { valid_to: e.target.value || null })} />}</td>
-                  <td>{d.path ? <button className="link" onClick={() => open(d)}>{d.file_name}</button> : <span className="quiet small">bez souboru</span>}{d.source === 'drive' && <span className="quiet small"> · z Drive</span>}</td>
+                  <td>{d.path ? <button className="link" onClick={() => open(d)}>{d.file_name}</button> : <span className="quiet small">bez souboru</span>}{d.source === 'drive' && <span className="quiet small"> · z Drive</span>}{d.path && canEdit && isImageDoc(d) && <> · <button className="link small" onClick={() => setEdit(d)}>upravit</button></>}</td>
                   <td className="nowrap">
                     {d.status === 'navrzeno' && <><span className="badge soon">navrženo</span>{canEdit && <button className="link small" onClick={() => patch(d, { status: 'potvrzeno' })}>potvrdit</button>}</>}
                     {d.status === 'potvrzeno' && d.kind !== 'nezarazeno' && <span className="quiet small">✓</span>}
@@ -167,10 +191,11 @@ function DocsTab({ person }: { person: Person }) {
                 </tr>
               )
             })}
-            {docs.length === 0 && <tr><td colSpan={7} className="quiet">Zatím žádný doklad.</td></tr>}
+            {docs.length === 0 && <tr><td colSpan={8} className="quiet">Zatím žádný doklad.</td></tr>}
           </tbody>
         </table>
       </div>
+      {edit && <ImageEditor doc={edit} onClose={() => setEdit(null)} onSaved={reloadLists} />}
       {preview && createPortal(
         <div className="overlay lightbox" onMouseDown={() => setPreview(null)}>
           <img src={preview.url} alt={preview.name} />

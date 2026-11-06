@@ -6,6 +6,7 @@ import { exportXlsx, printPdf } from '../lib/export'
 import ListTable, { type Col } from './ListTable'
 import { PersonDialog } from './PersonDialog'
 import { DocsImport } from './DocsImport'
+import { DocsPdfDialog } from './DocsPdfDialog'
 
 // Lidé: seznam s rychlou editací, detail (⋯) s doklady a cestami
 export function People() {
@@ -16,6 +17,7 @@ export function People() {
   const [onlyActive, setOnlyActive] = useState(true)
   const [open, setOpen] = useState<string | null>(null)
   const [imp, setImp] = useState(false)
+  const [pdf, setPdf] = useState(false)
 
   // nejbližší platnost dokladu daného druhu (potvrzené mají přednost)
   const best = useMemo(() => {
@@ -121,6 +123,7 @@ export function People() {
         tools={<>
           <button className="link" onClick={excel}>Excel</button>
           <button className="link" onClick={printPdf}>Tisk / PDF</button>
+          {seeDocs && <button className="link" onClick={() => setPdf(true)}>Doklady do PDF</button>}
           {editDocs && <button className="link" onClick={() => setImp(true)}>Import dokladů ze složky</button>}
         </>}
         filters={<><div className="filterrow">
@@ -133,6 +136,7 @@ export function People() {
         intro={<>Neaktivní lidé zmizí z nabídky v Planningu, ale zůstanou u starých cest. Detail (⋯) má doklady{seeDocs ? '' : ' (bez oprávnění je nevidíte)'} a historii cest. {seeDocs && 'Doklad je červeně po platnosti a oranžově 90 dní před koncem.'}</>} />
       {open && people.find(p => p.id === open) && <PersonDialog person={people.find(p => p.id === open)!} onClose={() => setOpen(null)} />}
       {imp && <DocsImport onClose={() => setImp(false)} kinds={docKinds} />}
+      {pdf && <DocsPdfDialog onClose={() => setPdf(false)} />}
     </>
   )
 }
