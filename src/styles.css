@@ -464,3 +464,16 @@ tr.canceledrow td.ro:first-of-type { text-decoration: none; }
 .attachgrid tr.missingrow td { background: var(--expired); }
 .attachgrid td.num, .attachgrid th.num { text-align: right; }
 .turnover { margin-left: 1rem; font-size: .85rem; font-weight: 400; }
+
+/* Pokuty */
+.fines .intro { max-width: 900px; color: var(--muted); font-size: .9rem; margin: 0 0 .6rem; }
+.batches { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .7rem; }
+.batchcard { text-align: left; border: 1px solid var(--line); border-radius: 8px; padding: .4rem .7rem; background: var(--card); cursor: pointer; font: inherit; color: inherit; line-height: 1.45; }
+.batchcard.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.batchcard .link { text-decoration: underline; color: var(--accent); }
+.finesgrid .wrapcell { white-space: normal; min-width: 9rem; max-width: 18rem; }
+.finesgrid td.expired, .repdialog .expired { color: #b42318; font-weight: 600; }
+.finesgrid td.soon { color: #b54708; font-weight: 600; }
+.finesgrid tr.proposed td { background: color-mix(in srgb, #fbbf24 10%, transparent); }
+.repdialog .ro { display: block; padding: .35rem 0; }
+.repdialog .newroute input[type=file] { max-width: 16rem; }
