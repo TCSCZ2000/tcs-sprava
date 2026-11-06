@@ -435,3 +435,26 @@ tr:hover .suplink, .suplink:focus { opacity: 1; }
 tr.canceledrow td { color: var(--ink-2); }
 tr.canceledrow td.ro:first-of-type { text-decoration: none; }
 .canceltag { background: #fde8e8; color: #9c0006; border-color: #f3b4b4; }
+
+/* Reporty: hustá mřížka */
+.reports.dense .grid { font-size: .82rem; }
+.reports.dense .grid td, .reports.dense .grid th { border-right: 1px solid #e3e8e6; padding: 0 .2rem; }
+.reports.dense .grid td { height: 26px; border-bottom: 1px solid #e3e8e6; }
+.reports.dense .grid th { padding: .3rem .25rem; font-size: .74rem; }
+.reports.dense .grid td:first-child, .reports.dense .grid th:first-child { border-left: 1px solid #e3e8e6; }
+.reports.dense .cell { padding: .1rem .25rem; min-width: 0; }
+.reports.dense .timecell .cell { min-width: 5.4rem; width: 6rem; font-size: .8rem; }
+.reports.dense td.ro { padding: 0 .3rem; }
+.reports.dense td.num { text-align: right; white-space: nowrap; }
+.reports.dense .grid tr.trip td:nth-child(6) { min-width: 15rem; max-width: 22rem; white-space: normal; line-height: 1.15; }
+.reports.dense .grid tr.trip td:nth-child(7) { max-width: 16rem; white-space: normal; line-height: 1.15; }
+.reports.dense .suptag { font-size: .68rem; }
+.attachments { margin-top: 1.5rem; }
+.attach { margin: .75rem 0 1.25rem; }
+.attach h3 { font-size: .95rem; margin: .4rem 0 .3rem; }
+.attachgrid { font-size: .82rem; }
+.attachgrid td, .attachgrid th { border-right: 1px solid #e3e8e6; padding: .15rem .35rem !important; }
+.attachgrid td:first-child, .attachgrid th:first-child { border-left: 1px solid #e3e8e6; }
+.attachgrid tfoot td { background: var(--surface-2, #eef2f5); border-top: 2px solid var(--line); }
+.attachgrid tr.missingrow td { background: var(--expired); }
+.attachgrid td.num, .attachgrid th.num { text-align: right; }

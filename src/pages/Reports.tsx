@@ -244,10 +244,10 @@ export default function Reports() {
 
   const waiting = trips.filter(t => t.status === DONE && !t.report_done_at).length
   const canceledOpen = trips.filter(t => t.status === 'Canceled' && !t.report_done_at).length
-  const COLS = seePrice ? 27 : 25
+  const COLS = seePrice ? 30 : 25
 
   return (
-    <section className="plan reports size-s">
+    <section className="plan reports size-s dense">
       <div className="toolbar">
         <h1>Reporty</h1>
         <span className="count">{waiting} k dopsání{canceledOpen ? ` · ${canceledOpen} zrušených k rozhodnutí` : ''}</span>
@@ -266,9 +266,7 @@ export default function Reports() {
         {attachments.length > 0 && <button className="ghostbtn" title="Přílohy k fakturám TCS NL a TCS DE za zvolený měsíc, rozdělené po max. 21 000 €" onClick={excelAttachments}>Přílohy k faktuře</button>}
         <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
       </div>
-      {attachments.length > 0 && (
-        <p className="quiet small attachinfo">Přílohy k faktuře za {doneMonth}: {attachments.map(a => `${a.customer}: ${a.parts.map((p, i) => `č. ${i + 1} (${p.rows.length} rep., ${money(p.sum, 'EUR')})`).join(', ')}${a.missing ? ` · ${a.missing} bez ceny!` : ''}`).join(' · ')} — rozděleno po max. 21 000 € v pořadí čísel reportů.</p>
-      )}
+
       <p className="intro">Sem spadne každá cesta, které v Planningu dáte status Finished, a také zrušené (Canceled). Časy pište jako 3:30 (den se doplní sám) nebo 2.11. 3:30. Hotový report uzavřete tlačítkem Hotovo; cesta tím zmizí z Planningu do Historie. U zrušené buď zadáte storno (ruční cenu, číslo reportu, Hotovo), nebo dáte „bez účtování“, ať zůstane v Historii pro přehled; co se účtovat nebude a nemá zůstat ani v přehledu, smažte v Planningu.</p>
 
       <div className="tablewrap">
@@ -278,7 +276,7 @@ export default function Reports() {
               <th className="w-dots" /><th>Datum</th><th>Zákazník</th><th>#Report</th><th>Ref.</th><th>Trasa</th><th>Posádka</th><th>Auto</th>
               {TIMES.map(x => <th key={x.key}>{x.label}</th>)}
               <th>Km Pup</th><th>Km Dop</th><th>Km celkem</th><th>Mýto €</th>
-              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th><th title="Navazuje na předchozí cestu posádky: konec předchozí cesty se pro hodiny lidí posune na start téhle. Překryv vždy, mezera do 6 h se navrhne sama.">Navazuje</th>{seePrice && <><th>Cena podle</th><th title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena bez DPH</th></>}<th>Poznámka</th><th />
+              <th title="Příjezd domov − odjezd domov">Celkem h</th><th title="Příjezd Dop − odjezd Pup">Eskorta h</th><th>Hodiny ručně</th><th title="Navazuje na předchozí cestu posádky: konec předchozí cesty se pro hodiny lidí posune na start téhle. Překryv vždy, mezera do 6 h se navrhne sama.">Navazuje</th>{seePrice && <><th>Cena podle</th><th className="num" title="Hodiny × sazba (u pevné ceny zbytek po odečtení auta a mýta)">HRS</th><th className="num" title="Km × sazba/km">Car</th><th className="num">Toll</th><th className="num" title="Klikněte a napište částku, pokud je cena domluvená jinak">Cena</th></>}<th>Poznámka</th><th />
             </tr>
           </thead>
           {groups.map(([cust, rows]) => (
@@ -381,6 +379,9 @@ export default function Reports() {
                                 </span>
                               })()}
                         </td>
+                        <td className="num ro quiet" title={pr?.how}>{pr ? pr.hrs.toLocaleString('cs-CZ') : ''}</td>
+                        <td className="num ro quiet" title={pr?.how}>{pr ? pr.car.toLocaleString('cs-CZ') : ''}</td>
+                        <td className="num ro quiet" title={pr?.how}>{pr ? pr.toll.toLocaleString('cs-CZ') : ''}</td>
                         <td className="num" title={pr?.how}>
                           <Text disabled={!ed} value={pr ? money(pr.price, pr.currency) : ''} time mono placeholder={ed ? 'zadat' : ''}
                             onSave={v => {
@@ -440,6 +441,32 @@ export default function Reports() {
           <p className="empty">Žádný report k dopsání. Cesta se sem dostane, když jí v Planningu dáte status Report.</p>
         )}
       </div>
+      {attachments.length > 0 && (
+        <div className="attachments">
+          <h2 className="subhead">Přílohy k faktuře za {doneMonth} <span className="quiet small">· hotové reporty v pořadí čísel, po max. 21 000 € · <button className="link small" onClick={excelAttachments}>Excel</button></span></h2>
+          {attachments.map(a => a.parts.map((part, i) => {
+            const sum = (k: 'hrs' | 'car' | 'toll') => Math.round(part.rows.reduce((x, r) => x + (r.pr?.[k] ?? 0), 0) * 100) / 100
+            return (
+              <div key={a.customer + i} className="attach">
+                <h3>{a.customer} · příloha {i + 1} <span className="quiet small">{part.rows.length} reportů · {money(part.sum, 'EUR')}</span></h3>
+                <table className="grid plain sub2 attachgrid">
+                  <thead><tr><th>Date</th><th>#Report</th><th>Ref#</th><th>Route</th><th className="num">HRS Price</th><th className="num">Car Price</th><th className="num">Toll Price</th><th className="num">Price</th></tr></thead>
+                  <tbody>
+                    {part.rows.map(({ t, pr }) => (
+                      <tr key={t.id} className={pr ? undefined : 'missingrow'}>
+                        <td>{dm(t.trip_date)}</td><td>{t.report_no}</td><td className="mono">{t.ref_tcs}</td>
+                        <td>{placeBy.get(t.pup_id ?? '')?.name ?? '?'}-{placeBy.get(t.dop_id ?? '')?.name ?? '?'}{stopsOf(t, stops).map(s => '-' + (placeBy.get(s.place_id)?.name ?? '?')).join('')}{t.takeover ? ' (Take-Over)' : ''}{t.status === 'Canceled' ? ' (canceled)' : ''}</td>
+                        <td className="num">{pr ? pr.hrs.toLocaleString('cs-CZ') : <span className="missingtxt">bez ceny</span>}</td><td className="num">{pr?.car.toLocaleString('cs-CZ')}</td><td className="num">{pr?.toll.toLocaleString('cs-CZ')}</td><td className="num"><strong>{pr?.price.toLocaleString('cs-CZ')}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr><td colSpan={4}><strong>Celkem</strong></td><td className="num">{sum('hrs').toLocaleString('cs-CZ')}</td><td className="num">{sum('car').toLocaleString('cs-CZ')}</td><td className="num">{sum('toll').toLocaleString('cs-CZ')}</td><td className="num"><strong>{part.sum.toLocaleString('cs-CZ')}</strong></td></tr></tfoot>
+                </table>
+              </div>
+            )
+          }))}
+        </div>
+      )}
       {openId && (() => {
         const t = trips.find(x => x.id === openId); if (!t) return null
         const tstops = stopsOf(t, stops); const end = jobEnd(t, stops)
