@@ -24,6 +24,9 @@ export function ReportDialog(p: {
   const { places, people, cars, customers, toast } = useApp()
   const done = reportDone(t)
   const ed = canEdit && !done
+  // cenu jde opravit i u hotového reportu (třeba po domluvě se zákazníkem), jen s potvrzením
+  const edPrice = canEdit
+  const savePrice = (patch: Partial<Trip>) => { if (done && !window.confirm('Report je už hotový. Opravdu změnit cenu?')) return; save(patch) }
   const transport = tripKind(t) === 'transport'
   const tcs = isTcsCustomer(t.customer, customers)
   const name = (id: string | null) => places.find(x => x.id === id)?.name ?? '?'
@@ -113,10 +116,10 @@ export function ReportDialog(p: {
               <p className="span4 missingtxt">Tahle trasa v ceníku není.{p.fallback ? ` Cena se počítá ze sazeb zákazníka (${p.fallback.rate_h} ${p.fallback.currency === 'CZK' ? 'Kč' : '€'}/h, ${p.fallback.rate_km}/km) a z km a mýta v reportu.` : ''} {p.canRoutes && ed && <button className="link" onClick={p.onSaveRoute}>uložit trasu na příště</button>}</p>
             )}
             <label className="span2">Cena podle
-              <select disabled={!ed} value={t.price_manual != null ? 'manual' : t.route_price_id ?? ''} onChange={e => {
+              <select disabled={!edPrice} value={t.price_manual != null ? 'manual' : t.route_price_id ?? ''} onChange={e => {
                 const v = e.target.value
-                if (v === 'manual') save({ price_manual: priced?.price ?? 0, route_price_id: null })
-                else save({ route_price_id: v || null, price_manual: null })
+                if (v === 'manual') savePrice({ price_manual: priced?.price ?? 0, route_price_id: null })
+                else savePrice({ route_price_id: v || null, price_manual: null })
               }}>
                 <option value="">sazby za hodinu a km{transport ? '' : ' + mýto'}{!route && p.fallback ? ` (${p.fallback.label})` : ''}</option>
                 {route && prices.filter(x => x.route_id === route.id).map(x => <option key={x.id} value={x.id}>pevná {x.label}: {money(Number(x.price), x.currency)}{transport && (x.free_load_h != null || x.free_unload_h != null) ? ` (zdarma ${x.free_load_h ?? 0} h nakl., ${x.free_unload_h ?? 0} h vykl.)` : ''}</option>)}
@@ -124,14 +127,14 @@ export function ReportDialog(p: {
               </select>
             </label>
             {t.price_manual == null && !t.route_price_id && (route || p.fallback) && <>
-              <label title="Sazba pro tuhle cestu; prázdné = podle trasy / zákazníka">Sazba /h<input className="mono" defaultValue={t.rate_h?.toString() ?? ''} key={'rh' + t.rate_h} disabled={!ed} placeholder={String(route?.rate_h ?? p.fallback?.rate_h ?? '')}
-                onBlur={e => { const n = num(e.target.value); if (n === undefined) return toast('Sazbu jako číslo.', 'err'); if (n !== (t.rate_h ?? null)) save({ rate_h: n }) }} /></label>
-              <label title="Sazba za km pro tuhle cestu; prázdné = podle trasy / zákazníka">Sazba /km<input className="mono" defaultValue={t.rate_km?.toString() ?? ''} key={'rk' + t.rate_km} disabled={!ed} placeholder={String(route?.rate_km ?? p.fallback?.rate_km ?? '')}
-                onBlur={e => { const n = num(e.target.value); if (n === undefined) return toast('Sazbu jako číslo.', 'err'); if (n !== (t.rate_km ?? null)) save({ rate_km: n }) }} /></label>
+              <label title="Sazba pro tuhle cestu; prázdné = podle trasy / zákazníka">Sazba /h<input className="mono" defaultValue={t.rate_h?.toString() ?? ''} key={'rh' + t.rate_h} disabled={!edPrice} placeholder={String(route?.rate_h ?? p.fallback?.rate_h ?? '')}
+                onBlur={e => { const n = num(e.target.value); if (n === undefined) return toast('Sazbu jako číslo.', 'err'); if (n !== (t.rate_h ?? null)) savePrice({ rate_h: n }) }} /></label>
+              <label title="Sazba za km pro tuhle cestu; prázdné = podle trasy / zákazníka">Sazba /km<input className="mono" defaultValue={t.rate_km?.toString() ?? ''} key={'rk' + t.rate_km} disabled={!edPrice} placeholder={String(route?.rate_km ?? p.fallback?.rate_km ?? '')}
+                onBlur={e => { const n = num(e.target.value); if (n === undefined) return toast('Sazbu jako číslo.', 'err'); if (n !== (t.rate_km ?? null)) savePrice({ rate_km: n }) }} /></label>
             </>}
             <label className="span2">Cena bez DPH
-              <input className="mono" defaultValue={priced ? money(priced.price, priced.currency) : ''} key={'p' + priced?.price + t.price_manual} disabled={!ed} placeholder="zadat ručně"
-                onBlur={e => { const n = num(e.target.value.replace(/€|Kč/g, '')); if (n === undefined) return toast('Cenu jako číslo.', 'err'); if (n === null) return save({ price_manual: null }); if (auto && Math.abs(n - auto.price) < 0.005 && t.price_manual == null) return; save({ price_manual: n }) }} />
+              <input className="mono" defaultValue={priced ? money(priced.price, priced.currency) : ''} key={'p' + priced?.price + t.price_manual} disabled={!edPrice} placeholder="zadat ručně" title="Jiná částka = ruční cena pro tuhle cestu (třeba pevná cena z ceníku upravená po domluvě)"
+                onBlur={e => { const n = num(e.target.value.replace(/€|Kč/g, '')); if (n === undefined) return toast('Cenu jako číslo.', 'err'); if (n === null) return savePrice({ price_manual: null }); if (auto && Math.abs(n - auto.price) < 0.005 && t.price_manual == null) return; savePrice({ price_manual: n }) }} />
             </label>
             {priced && <p className="span4 quiet small">{priced.how}<br />Rozklad pro přílohu faktury: HRS price {money(priced.hrs, priced.currency)} · Car price {money(priced.car, priced.currency)} · Toll {money(priced.toll, priced.currency)}</p>}
           </>}
