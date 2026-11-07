@@ -497,3 +497,16 @@ tr.canceledrow td.ro:first-of-type { text-decoration: none; }
 .change .suplink { opacity: 0; }
 tr:hover .change .suplink { opacity: 1; }
 .crewgrid select.cell { min-width: 9rem; }
+
+/* Hodiny: návrhy ke schválení a pohled vedle sebe */
+.proposals { border: 1px solid #f0c36d; background: #fff8e6; border-radius: 8px; padding: .5rem .75rem; margin-bottom: .8rem; }
+.proposals table { margin-top: .4rem; }
+.hoursgrid.wide td.blocks { white-space: nowrap; overflow-x: auto; padding: .25rem .4rem; }
+.hblock { display: inline-flex; flex-direction: column; vertical-align: top; min-width: 13rem; max-width: 20rem; white-space: normal; border: 1px solid var(--line); border-radius: 6px; padding: .3rem .5rem; margin: .15rem .4rem .15rem 0; background: var(--card); font-size: .85rem; line-height: 1.35; }
+.hblock.extra { background: #f3f7ff; border-color: #b9cdf0; }
+.hblock.adj-overlap, .hblock.adj-confirmed, .hblock.adj-manual { border-color: #7fb8a8; }
+.hblock.adj-auto { border-color: #e4b35c; }
+.hblock .hb-head { font-weight: 600; }
+.hblock .hb-time { font-family: ui-monospace, monospace; font-size: .8rem; }
+.hblock .hb-link { color: #0b5d57; font-size: .8rem; }
+.hblock s { color: var(--ink-2); }

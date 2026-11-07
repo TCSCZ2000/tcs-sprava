@@ -12,6 +12,7 @@ import Routes from './pages/Routes'
 import Hours from './pages/Hours'
 import Suppliers from './pages/Suppliers'
 import Fines from './pages/Fines'
+import { ProposalsPage } from './pages/ExtraHoursDialog'
 
 const PAGES: { id: string; label: string; module: ModuleKey; el: () => JSX.Element }[] = [
   { id: 'plan', label: 'Planning', module: 'planning', el: () => <Plan /> },
@@ -19,6 +20,7 @@ const PAGES: { id: string; label: string; module: ModuleKey; el: () => JSX.Eleme
   { id: 'reporty', label: 'Reporty', module: 'reports', el: () => <Reports /> },
   { id: 'trasy', label: 'Trasy a ceny', module: 'routes', el: () => <Routes /> },
   { id: 'hodiny', label: 'Hodiny', module: 'hours', el: () => <Hours /> },
+  { id: 'navrhy', label: 'Návrhy hodin', module: 'hours_propose', el: () => <ProposalsPage /> },
   { id: 'lide', label: 'Lidé', module: 'people', el: () => <People /> },
   { id: 'dodavatele', label: 'Dodavatelé', module: 'suppliers', el: () => <Suppliers /> },
   { id: 'pokuty', label: 'Pokuty', module: 'fines', el: () => <Fines /> },
@@ -53,7 +55,8 @@ export default function App() {
       </Center>
     )
 
-  const allowed = PAGES.filter(p => level(p.module) !== 'none')
+  // Návrhy hodin jen pro ty, kdo nemají Hodiny (tam je totéž uvnitř)
+  const allowed = PAGES.filter(p => level(p.module) !== 'none' && !(p.id === 'navrhy' && level('hours') !== 'none'))
   const current = allowed.find(p => p.id === page) ?? allowed[0]
 
   return (

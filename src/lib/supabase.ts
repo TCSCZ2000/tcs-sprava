@@ -139,7 +139,15 @@ export const tripKind = (t: Pick<Trip, 'kind' | 'customer'>) => t.kind ?? ((t.cu
 export const KIND_LABEL = { escort: 'Doprovod', transport: 'Přeprava dodávkou' } as const
 export interface Base { code: string; name: string; sort: number }
 export const baseLabel = (from: string, to: string) => from === 'CZ' && to === 'CZ' ? '' : `${from} → ${to}`
-export interface HoursExtra { id: string; person_id: string; work_date: string; kind: 'mimo' | 'pevne'; hours: number; note: string | null }
+export type ExtraKind = 'mimo' | 'pevne' | 'vyzvednuti' | 'servis' | 'cekani'
+export interface HoursExtra { id: string; person_id: string; work_date: string; kind: ExtraKind; hours: number; note: string | null; status: 'navrzeno' | 'schvaleno' | 'zamitnuto'; trip_id: string | null; created_by: string | null; created_at: string; approved_by: string | null; approved_at: string | null; decision_note: string | null }
+export const EXTRA_KINDS: { key: ExtraKind; label: string; hint: string; fixed?: boolean }[] = [
+  { key: 'vyzvednuti', label: 'Vyzvednutí / přesun auta', hint: 'Hodiny nad rámec reportu za vyzvednutí nebo přesun auta' },
+  { key: 'servis', label: 'Auto do servisu', hint: 'Odvoz auta do servisu / ze servisu' },
+  { key: 'cekani', label: 'Čekání / jiné domluvené', hint: 'Jiné domluvené hodiny navíc' },
+  { key: 'mimo', label: 'Mimo report', hint: 'Placené hodiny bez reportu' },
+  { key: 'pevne', label: 'Pevné hodiny', hint: 'Pevně dané hodiny za jinou práci', fixed: true },
+]
 
 // Vykládky cesty: Dop (první) + další v trip_stops; konec práce = odjezd z poslední vykládky
 export const stopsOf = (t: Pick<Trip, 'id'>, stops: StopsMap) => stops.get(t.id) ?? []

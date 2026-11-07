@@ -23,7 +23,10 @@ const GROUPS: { tab: string; rows: Row[] }[] = [
   { tab: 'Podklad pro zákazníka', rows: [{ key: 'podklad', label: 'Přístup', kind: 'view', viewer: true }] },
   { tab: 'Reporty', rows: [{ key: 'reports', label: 'Přístup', kind: 'tri', viewer: true, names: { none: 'nevidí', read: 'čte', write: 'dopisuje reporty' } }] },
   { tab: 'Trasy a ceny', rows: [{ key: 'routes', label: 'Přístup', kind: 'tri', viewer: true }] },
-  { tab: 'Hodiny', rows: [{ key: 'hours', label: 'Přístup', kind: 'tri', viewer: true }] },
+  { tab: 'Hodiny', rows: [
+    { key: 'hours', label: 'Přístup (hodiny všech, schvalování)', kind: 'tri', viewer: true },
+    { key: 'hours_propose', label: 'Návrhy hodin navíc (zadává, vidí jen své návrhy)', kind: 'bin' },
+  ] },
   { tab: 'Auta – PINy', rows: [{ key: 'cars_pins', label: 'PINy tankovacích karet (po zadání hesla k PINům)', kind: 'tri', viewer: true }] },
   { tab: 'Lidé', rows: [
     { key: 'people', label: 'Kontakty', kind: 'tri', viewer: true },
@@ -41,11 +44,11 @@ const VIEWER_KEYS = GROUPS.flatMap(g => g.rows.filter(r => r.viewer).map(r => r.
 // Šablony pro rychlé nastavení Individuální role
 const PRESETS: { name: string; perms: Draft }[] = [
   { name: 'Dispečer', perms: { planning: 'write', planning_create: 'write', planning_status: 'write', planning_crew: 'write', planning_route: 'write',
-    podklad: 'read', reports: 'read', routes: 'none', hours: 'none', cars_pins: 'none', people: 'write', people_docs: 'read', suppliers: 'read', fines: 'read', cars: 'read', places: 'write', users: 'none' } },
+    podklad: 'read', reports: 'read', routes: 'none', hours: 'none', hours_propose: 'write', cars_pins: 'none', people: 'write', people_docs: 'read', suppliers: 'read', fines: 'read', cars: 'read', places: 'write', users: 'none' } },
   { name: 'Vše zakázat', perms: Object.fromEntries(ALL_KEYS.map(k => [k, 'none'])) as Draft },
 ]
 
-const VIEWER_DEFAULT: Draft = { planning: 'read', podklad: 'read', reports: 'none', routes: 'none', hours: 'none', cars_pins: 'none', people: 'read', people_docs: 'none', suppliers: 'none', fines: 'none', cars: 'read', places: 'read' }
+const VIEWER_DEFAULT: Draft = { planning: 'read', podklad: 'read', reports: 'none', routes: 'none', hours: 'none', hours_propose: 'none', cars_pins: 'none', people: 'read', people_docs: 'none', suppliers: 'none', fines: 'none', cars: 'read', places: 'read' }
 
 function cap(role: Role, d: Draft): Draft {
   if (role === 'admin') return {}
@@ -152,6 +155,7 @@ export default function Users() {
     if (get('podklad') !== 'none') tabs.push('Podklad')
     if (get('routes') !== 'none') tabs.push('Trasy a ceny' + (get('routes') === 'read' ? ' (čte)' : ''))
     if (get('hours') !== 'none') tabs.push('Hodiny' + (get('hours') === 'read' ? ' (čte)' : ''))
+    else if (get('hours_propose') === 'write') tabs.push('Návrhy hodin')
     if (get('cars_pins') !== 'none') tabs.push('PINy karet')
     if (get('reports') !== 'none') tabs.push('Reporty' + (get('reports') === 'read' ? ' (čte)' : ''))
     for (const [k, l] of [['people', 'Lidé'], ['people_docs', 'Doklady'], ['suppliers', 'Dodavatelé'], ['fines', 'Pokuty'], ['cars', 'Auta'], ['places', 'Místa'], ['users', 'Uživatelé']])

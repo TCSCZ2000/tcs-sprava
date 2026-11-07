@@ -1,15 +1,15 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { supabase, reportDone, supplierOf, supplierLabel, NO_SUPPLIER, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
+import { supabase, reportDone, supplierOf, supplierLabel, NO_SUPPLIER, EXTRA_KINDS, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
+import { ExtraHoursDialog } from './ExtraHoursDialog'
+import { usePref } from './Plan'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
 import { explain, useApp } from '../lib/data'
 import { fmtDT, todayIso } from '../lib/format'
 import { chainHours, fmtGap, fmtH, round2, type Seg } from '../lib/hours'
 import { exportXlsx, printPdf, type Cell } from '../lib/export'
 
-const KINDS: { key: HoursExtra['kind']; label: string; hint: string }[] = [
-  { key: 'mimo', label: 'Mimo report', hint: 'Placené hodiny bez reportu, třeba přesun auta' },
-  { key: 'pevne', label: 'Pevné hodiny', hint: 'Pevně dané hodiny za jinou práci' },
-]
+const KINDS = EXTRA_KINDS
+const kindLabel = (k: string) => KINDS.find(x => x.key === k)?.label ?? k
 
 const monthLabel = (m: string) => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, 1).toLocaleDateString('cs-CZ', { month: 'long', year: 'numeric' }) }
 const shiftMonth = (m: string, d: number) => { const [y, mo] = m.split('-').map(Number); const x = new Date(y, mo - 1 + d, 1); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}` }
@@ -26,7 +26,9 @@ export default function Hours() {
   const [routeTimes, setRouteTimes] = useState<RouteTime[]>([])
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [loaded, setLoaded] = useState(false)
-  const [form, setForm] = useState<{ person: string; date: string; kind: HoursExtra['kind']; hours: string; note: string } | null>(null)
+  const [form, setForm] = useState(false)
+  const [view, setView] = usePref<'list' | 'wide'>('hours.view', 'list')
+  const [decide, setDecide] = useState<HoursExtra | null>(null)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
@@ -38,7 +40,7 @@ export default function Hours() {
     // Cesty měsíc před a po, aby navazování fungovalo i přes přelom měsíce
     Promise.all([
       supabase.from('trips').select('*').gte('trip_date', monthStart(shiftMonth(month, -1))).lt('trip_date', monthStart(shiftMonth(month, 2))).neq('status', 'Canceled'),
-      supabase.from('hours_extra').select('*').gte('work_date', from).lt('work_date', to).order('work_date'),
+      supabase.from('hours_extra').select('*').or(`and(work_date.gte.${from},work_date.lt.${to}),status.eq.navrzeno`).order('work_date'),
     ]).then(([t, e]) => {
       if (t.error) toast(explain(t.error), 'err')
       if (e.error) toast(explain(e.error), 'err')
@@ -51,6 +53,7 @@ export default function Hours() {
   const { segs } = useMemo(() => chainHours(trips, t => plannedStartIso(t, ridx, placeBy), crew), [trips, ridx, placeBy, crew])
   const inMonth = (t: Trip) => t.trip_date >= from && t.trip_date < to
   const counted = (t: Trip) => t.status === 'Finished' && reportDone(t)
+  const proposals = useMemo(() => extra.filter(e => e.status === 'navrzeno'), [extra])
   const pendingTrips = useMemo(() => trips.filter(t => inMonth(t) && !counted(t) && t.status !== 'Canceled'), [trips, from, to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo<Row[]>(() => {
@@ -64,7 +67,7 @@ export default function Hours() {
       if (!counted(s.trip)) { if (s.trip.status !== 'Canceled') row(s.person, sup).pending++; continue }
       const r = row(s.person, sup); r.segs.push(s); r.raw += s.hoursRaw ?? 0; r.real += s.hours ?? 0
     }
-    for (const e of extra) { const r = row(e.person_id, defSup(e.person_id)); r.extra.push(e); if (e.kind === 'mimo') r.mimo += Number(e.hours); else r.pevne += Number(e.hours) }
+    for (const e of extra) { if (e.status !== 'schvaleno') continue; const r = row(e.person_id, defSup(e.person_id)); r.extra.push(e); if (e.kind === 'pevne') r.pevne += Number(e.hours); else r.mimo += Number(e.hours) }
     for (const r of m.values()) { r.raw = round2(r.raw); r.real = round2(r.real); r.total = round2(r.real + r.mimo + r.pevne); r.segs.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '')) }
     const supSort = (n: string) => n === NO_SUPPLIER ? 99 : suppliers.find(x => x.name === n)?.sort ?? 50
     return [...m.values()].filter(r => r.segs.length || r.extra.length).sort((a, b) => supSort(a.supplier) - supSort(b.supplier) || a.supplier.localeCompare(b.supplier) || (personBy.get(a.person)?.short_name ?? '').localeCompare(personBy.get(b.person)?.short_name ?? '', 'cs'))
@@ -88,19 +91,16 @@ export default function Hours() {
   const sum = (k: 'raw' | 'real' | 'mimo' | 'pevne' | 'total', sup?: string) => round2(rows.filter(r => !sup || r.supplier === sup).reduce((a, r) => a + r[k], 0))
   const name = (id: string) => personBy.get(id)?.short_name ?? '?'
 
-  async function addExtra() {
-    if (!form) return
-    const h = Number(form.hours.replace(',', '.'))
-    if (!form.person || !form.date || !Number.isFinite(h) || h <= 0) return toast('Vyplňte člověka, datum a hodiny.', 'err')
-    const { error } = await supabase.from('hours_extra').insert({ person_id: form.person, work_date: form.date, kind: form.kind, hours: h, note: form.note.trim() || null })
-    if (error) return toast(explain(error), 'err')
-    setForm(null); load()
-  }
   async function removeExtra(e: HoursExtra) {
-    if (!window.confirm(`Smazat ${fmtH(Number(e.hours))} h (${e.note ?? KINDS.find(k => k.key === e.kind)?.label})?`)) return
+    if (!window.confirm(`Smazat ${fmtH(Number(e.hours))} h (${e.note ?? kindLabel(e.kind)})?`)) return
     const { error } = await supabase.from('hours_extra').delete().eq('id', e.id)
     if (error) return toast(explain(error), 'err')
     load()
+  }
+  async function decideExtra(e: HoursExtra, status: 'schvaleno' | 'zamitnuto', note?: string) {
+    const { error } = await supabase.from('hours_extra').update({ status, decision_note: note?.trim() || null }).eq('id', e.id)
+    if (error) return toast(explain(error), 'err')
+    setDecide(null); load()
   }
   async function setCombi(t: Trip, v: boolean | null) {
     const { error } = await supabase.from('trips').update({ combi: v }).eq('id', t.id)
@@ -118,7 +118,7 @@ export default function Hours() {
     const detail: Cell[][] = [['Dodavatel', 'Jméno', '#Report', 'Ref.', 'Od', 'Do (report)', 'Do (pro hodiny)', 'Hodiny', 'Poznámka']]
     for (const r of rows) {
       for (const s of r.segs) detail.push([supplierLabel(r.supplier), name(r.person), s.trip.report_no, s.trip.ref_tcs, fmtDT(s.start), fmtDT(s.end), fmtDT(s.endAdj ?? s.end), s.hours, [s.ov ? (s.ov.note || 'střídání') : '', adjNote(s)].filter(Boolean).join(' · ')])
-      for (const e of r.extra) detail.push([supplierLabel(r.supplier), name(r.person), '', KINDS.find(k => k.key === e.kind)?.label, e.work_date, '', '', Number(e.hours), e.note])
+      for (const e of r.extra) detail.push([supplierLabel(r.supplier), name(r.person), '', kindLabel(e.kind), e.work_date, '', '', Number(e.hours), e.note])
     }
     const cars: Cell[][] = [['Dodavatel', 'Datum', '#Report', 'Ref.', 'Trasa', 'Km', 'Kč/km', 'Mýto', 'Celkem Kč']]
     for (const c of supCars) cars.push([supplierLabel(c.supplier), c.t.trip_date.split('-').reverse().join('.'), c.t.report_no, c.t.ref_tcs, `${placeBy.get(c.t.pup_id ?? '')?.name ?? '?'} → ${placeBy.get(c.t.dop_id ?? '')?.name ?? '?'}${c.who ? ` (${c.who})` : ''}`, c.km, suppliers.find(x => x.name === c.supplier)?.rate_km ?? '', c.toll, supCarAmount(c)])
@@ -136,10 +136,14 @@ export default function Hours() {
         </div>
         <input type="month" value={month} onChange={e => e.target.value && setMonth(e.target.value)} className="search" style={{ minWidth: 'auto', flex: '0 0 auto' }} />
         <span className="count">{rows.length} lidí · {fmtH(sum('total'))} h</span>
+        <div className="seg" role="group" aria-label="Pohled">
+          <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')} title="Lidé pod sebou, detail rozklikem">Pod sebou</button>
+          <button className={view === 'wide' ? 'on' : ''} onClick={() => setView('wide')} title="Člověk a vedle něj cesty za sebou (jako v Excelu)">Vedle sebe</button>
+        </div>
         <span className="grow" />
         <button className="ghostbtn" onClick={excel}>Excel</button>
         <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
-        {canEdit && <button className="primary" onClick={() => setForm({ person: '', date: todayIso(), kind: 'mimo', hours: '', note: '' })}>Přidat hodiny mimo report</button>}
+        {canEdit && <button className="primary" onClick={() => setForm(true)}>Přidat hodiny navíc</button>}
       </div>
       <p className="intro">Hodiny za cesty s datem v tomhle měsíci a hotovým reportem. Když člověk pokračuje rovnou na další cestu, konec předchozí se pro hodiny posune na start té další (překryv vždy, mezera do 6 h automaticky jako „navrženo“, delší jen po potvrzení v Reportech). Časy v reportu ani cena zákazníkovi se tím nemění.</p>
 
@@ -147,25 +151,31 @@ export default function Hours() {
         <p className="warn">{pendingTrips.length} {pendingTrips.length === 1 ? 'cesta v tomhle měsíci ještě nemá' : pendingTrips.length < 5 ? 'cesty v tomhle měsíci ještě nemají' : 'cest v tomhle měsíci ještě nemá'} hotový report, hodiny z nich tu nejsou: {pendingTrips.slice(0, 8).map(t => `${t.ref_tcs ?? t.status} ${t.trip_date.slice(8, 10)}. ${Number(t.trip_date.slice(5, 7))}.`).join(', ')}{pendingTrips.length > 8 ? '…' : ''}</p>
       )}
 
-      {form && (
-        <div className="newroute">
-          <strong>Hodiny mimo report:</strong>
-          <select value={form.person} onChange={e => setForm({ ...form, person: e.target.value })}>
-            <option value="">— člověk —</option>
-            {people.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.short_name}</option>)}
-          </select>
-          <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
-          <select value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value as HoursExtra['kind'] })}>
-            {KINDS.map(k => <option key={k.key} value={k.key} title={k.hint}>{k.label}</option>)}
-          </select>
-          <input className="search" style={{ minWidth: '5rem', flex: '0 0 5rem' }} placeholder="hodiny" value={form.hours} onChange={e => setForm({ ...form, hours: e.target.value })} />
-          <input className="search" placeholder="poznámka, třeba přesun auta Praha → Příbram" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
-          <button className="primary" onClick={addExtra}>Uložit</button>
-          <button className="link" onClick={() => setForm(null)}>Zrušit</button>
+      {form && <ExtraHoursDialog onClose={() => setForm(false)} onSaved={load} />}
+      {proposals.length > 0 && (
+        <div className="proposals">
+          <strong>Návrhy hodin navíc ke schválení ({proposals.length})</strong>
+          <table className="grid plain sub2">
+            <thead><tr><th>Datum</th><th>Člověk</th><th>Druh</th><th className="num">Hodiny</th><th>Poznámka</th><th>Navrhl</th><th /></tr></thead>
+            <tbody>
+              {proposals.map(e => (
+                <tr key={e.id} className="proposed">
+                  <td>{e.work_date.split('-').reverse().join('. ')}</td><td><strong>{name(e.person_id)}</strong></td><td>{kindLabel(e.kind)}</td><td className="num"><strong>{fmtH(Number(e.hours))}</strong></td>
+                  <td>{e.note}{e.trip_id && <span className="quiet small"> · k cestě</span>}</td><td className="quiet small">{fmtDT(e.created_at.slice(0, 16))}</td>
+                  <td className="nowrap">{canEdit && <>
+                    <button className="link small" onClick={() => decideExtra(e, 'schvaleno')}>schválit</button>{' '}
+                    {decide?.id === e.id
+                      ? <span className="inlinerow"><input className="cell" placeholder="důvod (nepovinné)" id={'dn' + e.id} /><button className="link small" onClick={() => decideExtra(e, 'zamitnuto', (document.getElementById('dn' + e.id) as HTMLInputElement)?.value)}>zamítnout</button><button className="link small" onClick={() => setDecide(null)}>zpět</button></span>
+                      : <button className="link small" onClick={() => setDecide(e)}>zamítnout</button>}
+                  </>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      <div className="tablewrap">
+      {view === 'list' && <div className="tablewrap">
         <table className="grid plain hoursgrid">
           <thead>
             <tr>
@@ -210,7 +220,7 @@ export default function Hours() {
                         ))}
                         {r.extra.map(e => (
                           <tr key={e.id} className="extra">
-                            <td /><td>{KINDS.find(k => k.key === e.kind)?.label}</td><td>{e.work_date.split('-').reverse().join('. ')}</td><td /><td />
+                            <td /><td>{kindLabel(e.kind)}</td><td>{e.work_date.split('-').reverse().join('. ')}</td><td /><td />
                             <td className="num">{fmtH(Number(e.hours))}</td>
                             <td className="quiet">{e.note}{canEdit && <> <button className="link small" onClick={() => removeExtra(e)}>smazat</button></>}</td>
                           </tr>
@@ -232,7 +242,52 @@ export default function Hours() {
           )}
         </table>
         {loaded && rows.length === 0 && <p className="empty">V tomhle měsíci zatím nejsou žádné hotové reporty ani hodiny mimo report.</p>}
-      </div>
+      </div>}
+      {view === 'wide' && (
+        <div className="tablewrap">
+          <table className="grid plain hoursgrid wide">
+            <thead><tr><th>Jméno</th><th className="num">Celkem</th><th>Cesty a hodiny v pořadí →</th></tr></thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const items = [
+                  ...r.segs.map(s => ({ at: s.start ?? s.end ?? '', seg: s, ex: null as HoursExtra | null })),
+                  ...r.extra.map(e => ({ at: e.work_date + 'T00:00:00', seg: null as Seg | null, ex: e })),
+                ].sort((a, b) => a.at.localeCompare(b.at))
+                return (
+                  <Fragment key={r.key}>
+                    {multiSup && (i === 0 || rows[i - 1].supplier !== r.supplier) && (
+                      <tr className="supsection"><td colSpan={3}><strong>{supplierLabel(r.supplier)}</strong><span className="quiet small"> · {rows.filter(x => x.supplier === r.supplier).length} lidí · {fmtH(sum('total', r.supplier))} h</span></td></tr>
+                    )}
+                    <tr>
+                      <td className="nowrap"><strong>{name(r.person)}</strong>{r.pending > 0 && <span className="quiet small" title="Cesty bez hotového reportu"> +{r.pending}</span>}</td>
+                      <td className="num"><strong>{fmtH(r.total)}</strong>{r.raw - r.real > 0 && <div className="quiet small">z reportů {fmtH(r.raw)}</div>}</td>
+                      <td className="blocks">
+                        {items.map(it => it.seg ? (
+                          <span key={it.seg.trip.id} className={'hblock' + (it.seg.adj ? ' adj-' + it.seg.adj.kind : '')} title={adjNote(it.seg)}>
+                            <span className="hb-head">#{it.seg.trip.report_no ?? '–'} {it.seg.trip.ref_tcs ?? ''} <span className="quiet">{placeBy.get(it.seg.trip.pup_id ?? '')?.name ?? '?'} → {placeBy.get(it.seg.trip.dop_id ?? '')?.name ?? '?'}</span></span>
+                            <span className="hb-time">{fmtDT(it.seg.start)} – {it.seg.endAdj ? <><s>{fmtDT(it.seg.end)}</s> {fmtDT(it.seg.endAdj)}</> : fmtDT(it.seg.end)}</span>
+                            <span className="hb-h"><strong>{fmtH(it.seg.hours)} h</strong>{it.seg.manual && <span className="quiet small"> ručně</span>}{it.seg.ov && <span className="suptag crewtag">{it.seg.ov.note || 'střídání'}</span>}</span>
+                            {it.seg.adj && <span className="hb-link">⟶ navazuje {it.seg.adj.gapH < 0 ? `(překryv ${fmtGap(it.seg.adj.gapH)})` : `(mezera ${fmtGap(it.seg.adj.gapH)})`}{it.seg.adj.kind === 'auto' && canEdit && <> <button className="link small" onClick={() => setCombi(it.seg!.adj!.next, true)}>potvrdit</button> <button className="link small" onClick={() => setCombi(it.seg!.adj!.next, false)}>ne</button></>}</span>}
+                            {!it.seg.adj && it.seg.next && it.seg.next.kind === 'none' && <span className="hb-link quiet">další za {fmtGap(it.seg.next.gapH)}{canEdit && <> <button className="link small" onClick={() => setCombi(it.seg!.next!.trip, true)}>navazuje</button></>}</span>}
+                          </span>
+                        ) : (
+                          <span key={it.ex!.id} className="hblock extra" title={it.ex!.note ?? ''}>
+                            <span className="hb-head">{kindLabel(it.ex!.kind)}</span>
+                            <span className="hb-time">{it.ex!.work_date.split('-').reverse().join('. ')}</span>
+                            <span className="hb-h"><strong>{fmtH(Number(it.ex!.hours))} h</strong>{it.ex!.note && <span className="quiet small"> {it.ex!.note}</span>}</span>
+                          </span>
+                        ))}
+                        {items.length === 0 && <span className="quiet small">bez hotových reportů</span>}
+                      </td>
+                    </tr>
+                  </Fragment>
+                )
+              })}
+            </tbody>
+            {rows.length > 0 && <tfoot><tr><td><strong>Celkem</strong></td><td className="num"><strong>{fmtH(sum('total'))}</strong></td><td className="quiet small">z reportů {fmtH(sum('raw'))} · skutečné {fmtH(sum('real'))} · navíc {fmtH(round2(sum('mimo') + sum('pevne')))}</td></tr></tfoot>}
+          </table>
+        </div>
+      )}
       {supCars.length > 0 && (
         <div className="tablewrap">
           <h2 className="subhead">Auta od dodavatelů</h2>
