@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase, reportDone, supplierOf, supplierLabel, NO_SUPPLIER, EXTRA_KINDS, type HoursExtra, type RouteTime, type Trip } from '../lib/supabase'
 import { ExtraHoursDialog } from './ExtraHoursDialog'
+import { SupplierExportDialog } from './SupplierExport'
 import { usePref } from './Plan'
 import { buildRouteIndex, plannedStartIso } from '../lib/planned'
 import { explain, useApp } from '../lib/data'
@@ -29,6 +30,7 @@ export default function Hours() {
   const [form, setForm] = useState(false)
   const [view, setView] = usePref<'list' | 'wide'>('hours.view', 'list')
   const [decide, setDecide] = useState<HoursExtra | null>(null)
+  const [supExport, setSupExport] = useState(false)
 
   const personBy = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const placeBy = useMemo(() => new Map(places.map(p => [p.id, p])), [places])
@@ -142,6 +144,7 @@ export default function Hours() {
         </div>
         <span className="grow" />
         <button className="ghostbtn" onClick={excel}>Excel</button>
+        <button className="ghostbtn" onClick={() => setSupExport(true)} title="Hodiny a cesty lidí dodavatele bez cen a úspor">Podklad pro dodavatele</button>
         <button className="ghostbtn" onClick={printPdf}>Tisk / PDF</button>
         {canEdit && <button className="primary" onClick={() => setForm(true)}>Přidat hodiny navíc</button>}
       </div>
@@ -152,6 +155,7 @@ export default function Hours() {
       )}
 
       {form && <ExtraHoursDialog onClose={() => setForm(false)} onSaved={load} />}
+      {supExport && <SupplierExportDialog month={month} rows={rows} trips={trips.filter(t => inMonth(t) && counted(t))} onClose={() => setSupExport(false)} />}
       {proposals.length > 0 && (
         <div className="proposals">
           <strong>Návrhy hodin navíc ke schválení ({proposals.length})</strong>
